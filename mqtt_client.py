@@ -18,6 +18,7 @@ class MqttClient:
         self.client = mqtt.Client()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
+        self.loop = None  # Will be set when start() is called
         
         if config.MQTT_USER and config.MQTT_PASSWORD:
             self.client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
@@ -28,6 +29,7 @@ class MqttClient:
         self._connect_task = None
 
     def start(self):
+        self.loop = asyncio.get_event_loop()
         self._connect_task = asyncio.create_task(self._connect_loop())
 
     async def _connect_loop(self):
@@ -135,10 +137,14 @@ class MqttClient:
             }
             
             # Bridge handling (async call from sync callback requires run_coroutine_threadsafe)
-            asyncio.run_coroutine_threadsafe(
-                self.bridge.handle_meshtastic_message(packet_dict, "mqtt", stats),
-                asyncio.get_event_loop()
-            )
+            # Use the stored event loop reference from the main thread
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self.bridge.handle_meshtastic_message(packet_dict, "mqtt", stats),
+                    self.loop
+                )
+            else:
+                logger.error("Event loop not set - unable to schedule message handling")
 
     def _node_id_to_str(self, node_id):
         # Convert integer node_id to !Hex string
