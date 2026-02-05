@@ -111,19 +111,14 @@ class MqttClient:
         stats = ReceptionStats(gateway_id=gateway_id, rssi=rssi, snr=snr)
 
         # Payload Decoding
-        # Packet might be encrypted. config.MESHTASTIC_CHANNEL_PSK might be needed.
-        # For now, let's assume valid plaintext or handle basic text.
+        # Check if packet is already decoded or needs decryption
         
-        if packet.decoded.data.payload:
+        if packet.HasField("decoded"):
             # Already decoded
             self._handle_decoded_packet(packet, stats)
-        elif packet.encrypted and config.MESHTASTIC_CHANNEL_PSK:
+        elif packet.HasField("encrypted") and config.MESHTASTIC_CHANNEL_PSK:
             # Manual Decryption
             self._try_decrypt(packet, stats)
-        
-        # If the packet has 'decoded' field populated (protobuf), use it.
-        if packet.HasField("decoded") and packet.decoded.portnum != portnums_pb2.UNKNOWN_APP:
-             self._handle_decoded_packet(packet, stats)
 
     def _handle_decoded_packet(self, packet, stats):
         decoded = packet.decoded
