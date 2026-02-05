@@ -95,17 +95,32 @@ class MatrixBot:
     async def get_display_name(self, user_id: str) -> str:
         """Get the display name for a user in the current room.
         
+        Prioritizes room-specific nicknames (set via /myroomnick) over global display names.
         Falls back to the user_id if display name is not available.
         """
         try:
-            # Try to get the display name from the room member
+            # First, try to get the room-specific display name from room members
+            # This includes nicknames set via /myroomnick
+            rooms_response = await self.client.joined_rooms()
+            if hasattr(rooms_response, 'rooms') and self.room_id in rooms_response.rooms:
+                # Get room members to access room-specific display names
+                # We need to check the synced room data
+                if self.room_id in self.client.rooms:
+                    room = self.client.rooms[self.room_id]
+                    # Check if user is in the room and get their display name
+                    if user_id in room.users:
+                        display_name = room.user_name(user_id)
+                        if display_name and display_name != user_id:
+                            return display_name
+            
+            # Fallback to global display name
             response = await self.client.get_displayname(user_id)
             if hasattr(response, 'displayname') and response.displayname:
                 return response.displayname
         except Exception as e:
             logger.debug(f"Could not fetch display name for {user_id}: {e}")
         
-        # Fallback to user_id
+        # Final fallback to user_id
         return user_id
 
     async def _on_room_message(self, room: MatrixRoom, event: RoomMessageText):
