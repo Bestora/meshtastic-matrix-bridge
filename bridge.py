@@ -238,10 +238,9 @@ class MeshtasticMatrixBridge:
             
             if not state.matrix_event_id:
                 # We haven't posted the stats message yet. Create it now.
-                # Reply to the original user message if we know it
-                reply_to_id = state.related_event_id
+                # User requested to remove "in reply to" for cleaner look, relying on proximity
                 
-                event_id = await self.matrix_bot.send_message(new_content, new_html, reply_to=reply_to_id)
+                event_id = await self.matrix_bot.send_message(new_content, new_html)
                 if event_id:
                     state.matrix_event_id = event_id
                     self.node_db.save_message_state(state)

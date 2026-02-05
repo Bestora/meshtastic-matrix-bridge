@@ -186,7 +186,7 @@ class TestBridge(unittest.TestCase):
             
             await self.bridge.handle_meshtastic_message(packet_echo, "mqtt", stats)
             
-            # Verify send_message was called with stats ONLY (and reply_to)
+            # Verify send_message was called with stats ONLY (and NO reply_to)
             self.bridge.matrix_bot.send_message.assert_called_once()
             call_args = self.bridge.matrix_bot.send_message.call_args
             content = call_args[0][0]
@@ -194,7 +194,7 @@ class TestBridge(unittest.TestCase):
             
             self.assertIn("GatewayX", content)
             self.assertNotIn("Matrix Message", content) # Should not repeat text
-            self.assertEqual(kwargs['reply_to'], "user_event_id_555")
+            self.assertIsNone(kwargs.get('reply_to')) # User requested no reply linkage
             
             # Verify state updated
             self.assertEqual(self.bridge.message_state[555].matrix_event_id, "stats_event_id")
