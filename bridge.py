@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import re
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -45,6 +46,29 @@ class MeshtasticMatrixBridge:
         
         if not text:
              return
+
+        # Check for "[Reaction to ID]: Emoji" pattern (legacy/bridge reactions)
+        # Regex: Start with [Reaction to, capture digits, ]: space, capture rest
+        reaction_match = re.match(r"^\[Reaction to (\d+)\]: (.+)$", text)
+        if reaction_match:
+            target_id_str, emoji = reaction_match.groups()
+            
+            # Check if this is OUR own reaction echo
+            # We need to know our local node ID.
+            # Assuming meshtastic_interface has it stored as attribute.
+            my_node_id = getattr(self.meshtastic_interface, 'node_id', None)
+            
+            if my_node_id and sender == my_node_id:
+                logger.info(f"Ignoring own reaction echo for {target_id_str}")
+                return
+            
+            # Treat as valid reply/reaction from another node
+            try:
+                reply_id = int(target_id_str)
+                text = emoji
+                logger.info(f"Parsed text reaction from {sender} to {reply_id}: {emoji}")
+            except ValueError:
+                pass
 
         # Check race condition / pending processing
         if packet_id in self.processing_packets:
