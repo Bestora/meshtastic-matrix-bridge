@@ -128,7 +128,7 @@ class MqttClient:
             # Construct a dict similar to what we expect in bridge
             packet_dict = {
                 "id": packet.id,
-                "fromId": self._node_id_to_str(packet.from_id),
+                "fromId": self._node_id_to_str(getattr(packet, 'from')),
                 "decoded": {
                     "text": text
                 }
@@ -166,7 +166,7 @@ class MqttClient:
             # Nonce = packetId (4 bytes) + fromNodeId (4 bytes) + 8 bytes zero
             
             packet_id_bytes = packet.id.to_bytes(4, byteorder='little')
-            from_id_bytes = packet.from_id.to_bytes(4, byteorder='little')
+            from_id_bytes = getattr(packet, 'from').to_bytes(4, byteorder='little')
             
             # Construct 16-byte IV for CTR mode (Nonce + Counter)
             # Meshtastic use:
