@@ -277,7 +277,7 @@ class MeshtasticMatrixBridge:
         for s in sorted_stats:
             gateway_name = self.node_db.get_node_name(s.gateway_id)
             if s.hop_count == 0:
-                gateway_strings.append(f"{gateway_name} ({s.rssi}dB)")
+                gateway_strings.append(f"{gateway_name} ({s.rssi}dBm/{s.snr}dB)")
             else:
                 gateway_strings.append(f"{gateway_name} ({s.hop_count} hops)")
         return ', '.join(gateway_strings)
