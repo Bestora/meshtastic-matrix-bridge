@@ -80,7 +80,9 @@ class MeshtasticMatrixBridge:
         # HEURISTIC: If reply_id is 0 but text looks like an emoji/short-ack,
         # attach it to the LAST message seen.
         clean_text = text.strip()
-        is_emoji_candidate = len(clean_text) < 12
+        # Heuristic: Short length AND no ASCII letters (to separate words like "test" from emojis)
+        is_emoji_candidate = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
+        
         if reply_id == 0 and is_emoji_candidate and self.last_packet_id and self.last_packet_id != packet_id:
             logger.info(f"Heuristic: Treating orphan '{clean_text}' as reaction to last packet {self.last_packet_id}")
             reply_id = self.last_packet_id
@@ -157,7 +159,8 @@ class MeshtasticMatrixBridge:
             clean_text = text.strip()
             # Emojis can be multi-byte (up to 8-10 bytes for complex flags/families)
             # A strict limit of 5 is dangerous. Let's try 12 "chars".
-            is_emoji_reaction = len(clean_text) < 12 
+            # Also exclude text with ASCII letters to avoid words.
+            is_emoji_reaction = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
             
             logger.debug(f"Reply Analysis: text='{clean_text}', len={len(clean_text)}, is_emoji={is_emoji_reaction}")
 
