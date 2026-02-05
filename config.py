@@ -19,5 +19,6 @@ MQTT_USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() == "true"
 
 # Meshtastic
 MESHTASTIC_HOST = os.getenv("MESHTASTIC_HOST")
+MESHTASTIC_PORT = int(os.getenv("MESHTASTIC_PORT", 4403))
 MESHTASTIC_CHANNEL_IDX = int(os.getenv("MESHTASTIC_CHANNEL_IDX", 0))
 MESHTASTIC_CHANNEL_PSK = os.getenv("MESHTASTIC_CHANNEL_PSK")

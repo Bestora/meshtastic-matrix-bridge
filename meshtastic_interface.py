@@ -20,11 +20,12 @@ class MeshtasticInterface:
     async def _connect_loop(self):
         while True:
             try:
-                logger.info(f"Connecting to Meshtastic Node at {config.MESHTASTIC_HOST}...")
+                logger.info(f"Connecting to Meshtastic Node at {config.MESHTASTIC_HOST}:{config.MESHTASTIC_PORT}...")
                 # TCPInterface is blocking, so we run it in a thread
                 self.interface = await asyncio.to_thread(
                     meshtastic.tcp_interface.TCPInterface,
-                    hostname=config.MESHTASTIC_HOST
+                    hostname=config.MESHTASTIC_HOST,
+                    portNumber=config.MESHTASTIC_PORT
                 )
                 
                 # Subscribe to message events
