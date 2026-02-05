@@ -1,6 +1,6 @@
-# Meshtastic <-> Matrix Bridge
+# Meshtastic <-> Matrix Bridge with MQTT Support
 
-A Python bridge to connect a Meshtastic mesh (via MQTT and/or LAN node) to a Matrix room.
+A Python bridge to connect a Meshtastic mesh (via MQTT and/or Local node) to a Matrix room.
 
 ## Features
 

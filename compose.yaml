@@ -1,0 +1,7 @@
+services:
+  meshtastic-bridge:
+    build: .
+    container_name: meshtastic-bridge
+    restart: unless-stopped
+    env_file:
+      - .env
