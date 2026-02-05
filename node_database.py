@@ -52,9 +52,61 @@ class NodeDatabase:
                 pass # Already exists
 
             conn.commit()
+            conn.commit()
             logger.info(f"Node database initialized at {self.db_path}")
 
-    # ... (omit methods until save_message_state)
+    @contextmanager
+    def _get_connection(self):
+        """Context manager for database connections."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
+    
+    def update_node(self, node_id: str, short_name: Optional[str] = None, long_name: Optional[str] = None):
+        """Update or insert a node's information."""
+        with self._get_connection() as conn:
+            conn.execute('''
+                INSERT INTO nodes (node_id, short_name, long_name, last_seen)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    short_name = COALESCE(?, short_name),
+                    long_name = COALESCE(?, long_name),
+                    last_seen = CURRENT_TIMESTAMP
+            ''', (node_id, short_name, long_name, short_name, long_name))
+            conn.commit()
+            logger.debug(f"Updated node {node_id}: short={short_name}, long={long_name}")
+    
+    def get_node_name(self, node_id: str) -> str:
+        """Get a human-readable name for a node ID.
+        
+        Returns the short_name if available, otherwise long_name, otherwise the node_id.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                'SELECT short_name, long_name FROM nodes WHERE node_id = ?',
+                (node_id,)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                short_name, long_name = row
+                if short_name:
+                    return short_name
+                elif long_name:
+                    return long_name
+            
+            # Fallback to node_id
+            return node_id
+    
+    def get_all_nodes(self):
+        """Get all nodes from the database."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                'SELECT node_id, short_name, long_name, last_seen FROM nodes ORDER BY last_seen DESC'
+            )
+            return cursor.fetchall()
 
     def save_message_state(self, state: MessageState):
         """Save or update a MessageState object."""
