@@ -55,10 +55,23 @@ class MeshtasticInterface:
     def send_tapback(self, target_packet_id: int, emoji: str, channel_idx: int = 0):
         """
         Sends a tapback (reaction) to the mesh.
-        Since the Python API doesn't have a direct 'sendTapback' yet, we send a text message.
+        Uses REACTION_APP (68) so clients render it properly.
         """
-        text = f"[Reaction to {target_packet_id}]: {emoji}"
-        self.send_text(text, channel_idx)
+        if self.interface:
+            try:
+                # Attempt to use sendData with replyId (recent meshtastic versions)
+                # portnums_pb2.REACTION_APP is usually 68
+                self.interface.sendData(
+                    data=emoji.encode("utf-8"),
+                    portNum=68,
+                    replyId=target_packet_id,
+                    channelIndex=channel_idx
+                )
+                logger.info(f"Sent tapback '{emoji}' to {target_packet_id}")
+            except Exception as e:
+                logger.error(f"Failed to send tapback: {e}")
+        else:
+            logger.error("Cannot send tapback: Interface not connected")
 
     def send_text(self, text: str, channel_idx: int = 0):
         if self.interface:

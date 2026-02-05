@@ -44,6 +44,9 @@ class MeshtasticMatrixBridge:
         text = decoded.get("text", "")
         reply_id = decoded.get("replyId", 0)
         
+        logger.info(f"Processing Packet {packet_id} from {sender}. Text='{text}', ReplyID={reply_id}, Port={packet.get('decoded', {}).get('portnum')}")
+        logger.debug(f"Full Decoded Packet: {decoded}")
+        
         if not text:
              return
 
