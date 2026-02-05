@@ -100,6 +100,7 @@ class MqttClient:
         gateway_id = getattr(se, "gateway_id", "Unknown")
         rssi = 0
         snr = 0.0
+        hop_count = 0
         
         # Extract RSSI/SNR from the packet rx_rssi / rx_snr if available (from the reporting node's perspective)
         # Or from the ServiceEnvelope itself if it reports reception stats of the bridge?
@@ -108,9 +109,24 @@ class MqttClient:
             rssi = packet.rx_rssi
         if hasattr(packet, "rx_snr"):
             snr = packet.rx_snr
+        
+        # Extract hop count/limit
+        if hasattr(packet, "hop_limit"):
+            # hop_count = original hop_limit - current hop_limit
+            # Meshtastic default is hop_limit=3, so if we see hop_limit=2, it's traveled 1 hop
+            # However, we don't know the original. Let's use hop_start if available.
+            pass
+        
+        if hasattr(packet, "hop_start"):
+            hop_start = packet.hop_start
+            hop_limit = getattr(packet, "hop_limit", 0)
+            hop_count = hop_start - hop_limit
+        else:
+            # Fallback: if we don't have hop_start, assume hop_count = 0 (direct)
+            hop_count = 0
 
         # Create ReceptionStats
-        stats = ReceptionStats(gateway_id=gateway_id, rssi=rssi, snr=snr)
+        stats = ReceptionStats(gateway_id=gateway_id, rssi=rssi, snr=snr, hop_count=hop_count)
 
         # Payload Decoding
         # Check if packet is already decoded or needs decryption
@@ -124,6 +140,12 @@ class MqttClient:
 
     def _handle_decoded_packet(self, packet, stats):
         decoded = packet.decoded
+        
+        # Handle NODEINFO packets
+        if decoded.portnum == portnums_pb2.NODEINFO_APP:
+            self._handle_nodeinfo(packet)
+            return
+        
         if decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
             text = decoded.payload.decode("utf-8")
             
@@ -145,6 +167,29 @@ class MqttClient:
                 )
             else:
                 logger.error("Event loop not set - unable to schedule message handling")
+    
+    def _handle_nodeinfo(self, packet):
+        """Handle NODEINFO packets to update the node database."""
+        try:
+            from meshtastic import mesh_pb2
+            
+            node_id = self._node_id_to_str(getattr(packet, 'from'))
+            decoded = packet.decoded
+            
+            # Parse the User protobuf from the payload
+            user = mesh_pb2.User()
+            user.ParseFromString(decoded.payload)
+            
+            short_name = user.short_name if user.short_name else None
+            long_name = user.long_name if user.long_name else None
+            
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self.bridge.handle_node_info(node_id, short_name, long_name),
+                    self.loop
+                )
+        except Exception as e:
+            logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
 
     def _node_id_to_str(self, node_id):
         # Convert integer node_id to !Hex string

@@ -68,16 +68,27 @@ class MeshtasticInterface:
             decoded = packet.get("decoded", {})
             portnum = decoded.get("portnum")
             
+            # Handle NODEINFO packets
+            if portnum == portnums_pb2.NODEINFO_APP:
+                self._handle_nodeinfo(packet)
+                return
+            
             if portnum == portnums_pb2.TEXT_MESSAGE_APP:
                 # Create Mock Stats for LAN
                 # For LAN, RSSI/SNR might be in 'rxRSSI'/'rxSNR'
-                rssi = packet.get("rxRSSI", 0)
-                snr = packet.get("rxSNR", 0)
+                rssi = packet.get("rxRssi", 0)
+                snr = packet.get("rxSnr", 0.0)
+                
+                # Extract hop count
+                hop_count = 0
+                if "hopStart" in packet and "hopLimit" in packet:
+                    hop_count = packet["hopStart"] - packet["hopLimit"]
                 
                 stats = ReceptionStats(
                     gateway_id="LAN_Node", # Indicator for local node
                     rssi=rssi,
-                    snr=snr
+                    snr=snr,
+                    hop_count=hop_count
                 )
                 
                 asyncio.run_coroutine_threadsafe(
@@ -87,3 +98,21 @@ class MeshtasticInterface:
                 
         except Exception as e:
             logger.error(f"Error processing LAN message: {e}", exc_info=True)
+    
+    def _handle_nodeinfo(self, packet):
+        """Handle NODEINFO packets from LAN to update the node database."""
+        try:
+            from_id = packet.get("fromId")
+            decoded = packet.get("decoded", {})
+            user_info = decoded.get("user", {})
+            
+            short_name = user_info.get("shortName")
+            long_name = user_info.get("longName")
+            
+            if from_id:
+                asyncio.run_coroutine_threadsafe(
+                    self.bridge.handle_node_info(from_id, short_name, long_name),
+                    asyncio.get_event_loop()
+                )
+        except Exception as e:
+            logger.error(f"Error processing NODEINFO: {e}", exc_info=True)

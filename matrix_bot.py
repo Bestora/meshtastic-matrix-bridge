@@ -91,6 +91,22 @@ class MatrixBot:
             message_type="m.room.message",
             content=content
         )
+    
+    async def get_display_name(self, user_id: str) -> str:
+        """Get the display name for a user in the current room.
+        
+        Falls back to the user_id if display name is not available.
+        """
+        try:
+            # Try to get the display name from the room member
+            response = await self.client.get_displayname(user_id)
+            if hasattr(response, 'displayname') and response.displayname:
+                return response.displayname
+        except Exception as e:
+            logger.debug(f"Could not fetch display name for {user_id}: {e}")
+        
+        # Fallback to user_id
+        return user_id
 
     async def _on_room_message(self, room: MatrixRoom, event: RoomMessageText):
         if room.room_id != self.room_id:

@@ -8,14 +8,22 @@ A Python bridge to connect a Meshtastic mesh (via MQTT and/or Local node) to a M
     - **Mesh -> Matrix**: Forwards messages from the mesh to a Matrix room.
     - **Matrix -> Mesh**: Forwards messages from Matrix users to the mesh.
 - **Message Aggregation**:
-    - Updates Matrix messages with reception stats (RSSI/SNR) and gateway info as multiple nodes report the same packet.
+    - Updates Matrix messages with reception stats as multiple nodes report the same packet.
+    - Shows RSSI/SNR for direct reception (0 hops), or hop count for multi-hop messages.
     - Handles deduplication if a packet is received via both MQTT and direct.
+- **Node Name Resolution**:
+    - Automatically resolves node IDs (like `!ae614908`) to human-readable names.
+    - Listens to NODEINFO packets and maintains a persistent SQLite database.
+    - Shows node short names or long names instead of hex IDs.
+- **Reply Threading**:
+    - Messages sent as replies in Meshtastic appear as notes under the original message in Matrix.
+    - Keeps conversation context clear and organized.
 - **Reaction Sync**:
     - **Mesh -> Matrix**: Tapbacks in the mesh update the original Matrix message with the emoji and sender.
     - **Matrix -> Mesh**: Reactions in Matrix are sent as Tapbacks to the mesh.
 - **Message Handling**:
     - **Long Messages**: Automatically splits Matrix messages > 200 chars into multiple packets.
-    - **Usernames**: Prepends `[Username]:` to Matrix messages sent to the mesh.
+    - **Display Names**: Uses Matrix display names instead of full user IDs in forwarded messages.
 - **Encryption Support**:
     - Supports connecting to TLS-enabled MQTT brokers.
     - Supports decrypting AES-encrypted Meshtastic packets (using `meshtastic` library).
