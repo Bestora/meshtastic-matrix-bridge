@@ -20,6 +20,15 @@ class MeshtasticMatrixBridge:
     def __init__(self):
         self.node_db = NodeDatabase()
         self.message_state: Dict[int, MessageState] = self.node_db.load_message_states()
+        
+        # Determine last packet ID based on last_update timestamp
+        self.last_packet_id: Optional[int] = None
+        if self.message_state:
+            # Sort states by last_update descending
+            sorted_states = sorted(self.message_state.values(), key=lambda s: s.last_update, reverse=True)
+            self.last_packet_id = sorted_states[0].packet_id
+            logger.info(f"Restored last_packet_id: {self.last_packet_id}")
+
         self.processing_packets: Dict[int, asyncio.Event] = {} # Track packets being processed
         self.matrix_bot = MatrixBot(self)
         self.mqtt_client = MqttClient(self)
@@ -51,27 +60,30 @@ class MeshtasticMatrixBridge:
              return
 
         # Check for "[Reaction to ID]: Emoji" pattern (legacy/bridge reactions)
-        # Regex: Start with [Reaction to, capture digits, ]: space, capture rest
         reaction_match = re.match(r"^\[Reaction to (\d+)\]: (.+)$", text)
         if reaction_match:
             target_id_str, emoji = reaction_match.groups()
             
-            # Check if this is OUR own reaction echo
-            # We need to know our local node ID.
-            # Assuming meshtastic_interface has it stored as attribute.
             my_node_id = getattr(self.meshtastic_interface, 'node_id', None)
             
             if my_node_id and sender == my_node_id:
                 logger.info(f"Ignoring own reaction echo for {target_id_str}")
                 return
             
-            # Treat as valid reply/reaction from another node
             try:
                 reply_id = int(target_id_str)
                 text = emoji
                 logger.info(f"Parsed text reaction from {sender} to {reply_id}: {emoji}")
             except ValueError:
                 pass
+        
+        # HEURISTIC: If reply_id is 0 but text looks like an emoji/short-ack,
+        # attach it to the LAST message seen.
+        clean_text = text.strip()
+        is_emoji_candidate = len(clean_text) < 12
+        if reply_id == 0 and is_emoji_candidate and self.last_packet_id and self.last_packet_id != packet_id:
+            logger.info(f"Heuristic: Treating orphan '{clean_text}' as reaction to last packet {self.last_packet_id}")
+            reply_id = self.last_packet_id
 
         # Check race condition / pending processing
         if packet_id in self.processing_packets:
@@ -79,7 +91,7 @@ class MeshtasticMatrixBridge:
             await self.processing_packets[packet_id].wait()
             # After wait, fall through to check message_state
 
-        # Check if this is a reply to an existing message
+        # Check if this is a reply to an existing message (or updated via heuristic)
         if reply_id and reply_id in self.message_state:
             await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats)
         elif packet_id in self.message_state:
@@ -88,6 +100,9 @@ class MeshtasticMatrixBridge:
             await self._handle_new_message(packet_id, sender, text, reception_stats)
 
     async def _handle_new_message(self, packet_id: int, sender: str, text: str, stats: ReceptionStats):
+        # Update last_packet_id for context
+        self.last_packet_id = packet_id
+        
         # Mark as processing
         event = asyncio.Event()
         self.processing_packets[packet_id] = event
