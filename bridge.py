@@ -162,9 +162,24 @@ class MeshtasticMatrixBridge:
                 # Logic for "True Reply" (New Matrix Message)
                 stats_str = self._format_stats([stats])
                 stats_html = self._format_stats_html([stats])
+                
+                # Construct Reply Fallback (Quoting)
+                # Text fallback
+                original_sender_name = self.node_db.get_node_name(original_state.sender)
+                original_short = (original_state.original_text[:50] + '...') if len(original_state.original_text) > 50 else original_state.original_text
+                
+                quote_text = f"> <{original_sender_name}> {original_short}\n\n"
+                
+                # HTML fallback
+                room_id = self.matrix_bot.room_id
+                orig_evt_id = original_state.matrix_event_id
+                # Note: valid link format helps clients jump
+                quote_link = f'<a href="https://matrix.to/#/{room_id}/{orig_evt_id}">In reply to</a>'
+                quote_user = f'<a href="https://matrix.to/#/{original_sender_name}">{original_sender_name}</a>'
+                quote_html = f'<mx-reply><blockquote>{quote_link} {quote_user}<br>{original_short}</blockquote></mx-reply>'
 
-                full_msg = f"[{sender_name}]: {text}\n{stats_str}"
-                formatted_msg = f"<b>[{sender_name}]</b>: {text}<br>{stats_html}"
+                full_msg = f"{quote_text}[{sender_name}]: {text}\n{stats_str}"
+                formatted_msg = f"{quote_html}<b>[{sender_name}]</b>: {text}<br>{stats_html}"
                 
                 matrix_event_id = await self.matrix_bot.send_message(full_msg, formatted_msg, reply_to=original_state.matrix_event_id)
                 

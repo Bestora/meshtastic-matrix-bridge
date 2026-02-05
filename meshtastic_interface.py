@@ -84,7 +84,12 @@ class MeshtasticInterface:
                 self._handle_nodeinfo(packet)
                 return
             
-            if portnum == portnums_pb2.TEXT_MESSAGE_APP:
+            # Check for supported apps
+            # TEXT_MESSAGE_APP = 1
+            # REACTION_APP = 68 (Commonly used, though maybe not in all pb2 yet)
+            is_text_like = portnum == portnums_pb2.TEXT_MESSAGE_APP or portnum == 68
+            
+            if is_text_like:
                 # Create Mock Stats for LAN
                 # For LAN, RSSI/SNR might be in 'rxRSSI'/'rxSNR'
                 rssi = packet.get("rxRssi", 0)
