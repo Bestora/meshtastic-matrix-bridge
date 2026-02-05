@@ -34,64 +34,27 @@ class NodeDatabase:
                     sender TEXT,
                     reception_list_json TEXT,
                     replies_json TEXT,
-                    last_update REAL
+                    last_update REAL,
+                    render_only_stats BOOLEAN DEFAULT 0,
+                    related_event_id TEXT DEFAULT NULL
                 )
             ''')
+            
+            # Migration for existing tables
+            try:
+                conn.execute('ALTER TABLE messages ADD COLUMN render_only_stats BOOLEAN DEFAULT 0')
+            except sqlite3.OperationalError:
+                pass # Already exists
+
+            try:
+                conn.execute('ALTER TABLE messages ADD COLUMN related_event_id TEXT DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass # Already exists
+
             conn.commit()
             logger.info(f"Node database initialized at {self.db_path}")
-    
-    @contextmanager
-    def _get_connection(self):
-        """Context manager for database connections."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            yield conn
-        finally:
-            conn.close()
-    
-    def update_node(self, node_id: str, short_name: Optional[str] = None, long_name: Optional[str] = None):
-        """Update or insert a node's information."""
-        with self._get_connection() as conn:
-            conn.execute('''
-                INSERT INTO nodes (node_id, short_name, long_name, last_seen)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(node_id) DO UPDATE SET
-                    short_name = COALESCE(?, short_name),
-                    long_name = COALESCE(?, long_name),
-                    last_seen = CURRENT_TIMESTAMP
-            ''', (node_id, short_name, long_name, short_name, long_name))
-            conn.commit()
-            logger.debug(f"Updated node {node_id}: short={short_name}, long={long_name}")
-    
-    def get_node_name(self, node_id: str) -> str:
-        """Get a human-readable name for a node ID.
-        
-        Returns the short_name if available, otherwise long_name, otherwise the node_id.
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                'SELECT short_name, long_name FROM nodes WHERE node_id = ?',
-                (node_id,)
-            )
-            row = cursor.fetchone()
-            
-            if row:
-                short_name, long_name = row
-                if short_name:
-                    return short_name
-                elif long_name:
-                    return long_name
-            
-            # Fallback to node_id
-            return node_id
-    
-    def get_all_nodes(self):
-        """Get all nodes from the database."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                'SELECT node_id, short_name, long_name, last_seen FROM nodes ORDER BY last_seen DESC'
-            )
-            return cursor.fetchall()
+
+    # ... (omit methods until save_message_state)
 
     def save_message_state(self, state: MessageState):
         """Save or update a MessageState object."""
@@ -100,15 +63,17 @@ class NodeDatabase:
         
         with self._get_connection() as conn:
             conn.execute('''
-                INSERT INTO messages (packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(packet_id) DO UPDATE SET
                     matrix_event_id = excluded.matrix_event_id,
                     original_text = excluded.original_text,
                     sender = excluded.sender,
                     reception_list_json = excluded.reception_list_json,
                     replies_json = excluded.replies_json,
-                    last_update = excluded.last_update
+                    last_update = excluded.last_update,
+                    render_only_stats = excluded.render_only_stats,
+                    related_event_id = excluded.related_event_id
             ''', (
                 state.packet_id, 
                 state.matrix_event_id, 
@@ -116,7 +81,9 @@ class NodeDatabase:
                 state.sender, 
                 reception_json, 
                 replies_json, 
-                state.last_update
+                state.last_update,
+                state.render_only_stats,
+                state.related_event_id
             ))
             conn.commit()
     
@@ -124,11 +91,11 @@ class NodeDatabase:
         """Load all MessageState objects from the database."""
         states = {}
         with self._get_connection() as conn:
-            cursor = conn.execute('SELECT packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update FROM messages')
+            cursor = conn.execute('SELECT packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id FROM messages')
             rows = cursor.fetchall()
             
             for row in rows:
-                packet_id, matrix_event_id, text, sender, rx_json, replies_json, last_update = row
+                packet_id, matrix_event_id, text, sender, rx_json, replies_json, last_update, render_only_stats, related_event_id = row
                 
                 try:
                     rx_list_data = json.loads(rx_json)
@@ -138,12 +105,14 @@ class NodeDatabase:
                     
                     state = MessageState(
                         packet_id=packet_id,
-                        matrix_event_id=matrix_event_id,
+                        matrix_event_id=matrix_event_id, # Can be None
                         original_text=text,
                         sender=sender,
                         reception_list=reception_list,
                         replies=replies,
-                        last_update=last_update
+                        last_update=last_update,
+                        render_only_stats=bool(render_only_stats),
+                        related_event_id=related_event_id
                     )
                     states[packet_id] = state
                 except Exception as e:

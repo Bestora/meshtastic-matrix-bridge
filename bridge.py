@@ -172,19 +172,43 @@ class MeshtasticMatrixBridge:
         stats_str = self._format_stats(state.reception_list)
         stats_html = self._format_stats_html(state.reception_list)
         
-        new_content = f"[{sender_name}]: {state.original_text}\n{stats_str}"
-        new_html = f"<b>[{sender_name}]</b>: {state.original_text}<br>{stats_html}"
-        
-        # Add replies if any
+        # Prepare Replies
+        reply_block = ""
+        reply_block_html = ""
         if hasattr(state, 'replies') and state.replies:
             reply_block = "\n" + "\n".join(state.replies)
-            new_content += reply_block
-            # For HTML, assume replies are just text/lines?
-            # We can format them too if we want.
             reply_block_html = "<br>" + "<br>".join([r.replace('<','&lt;') for r in state.replies])
-            new_html += reply_block_html
-        
-        await self.matrix_bot.edit_message(state.matrix_event_id, new_content, new_html)
+
+        # Render Logic
+        if state.render_only_stats:
+            # Compact Mode: Only show stats and replies
+            # We don't repeat the sender name/text because it's attached to the user's message
+            # But we might want to be clear? 
+            # "*(Received by: ...)*"
+            
+            new_content = f"{stats_str}{reply_block}"
+            new_html = f"{stats_html}{reply_block_html}"
+            
+            if not state.matrix_event_id:
+                # We haven't posted the stats message yet. Create it now.
+                # Reply to the original user message if we know it
+                reply_to_id = state.related_event_id
+                
+                event_id = await self.matrix_bot.send_message(new_content, new_html, reply_to=reply_to_id)
+                if event_id:
+                    state.matrix_event_id = event_id
+                    self.node_db.save_message_state(state)
+            else:
+                # Edit existing stats message
+                await self.matrix_bot.edit_message(state.matrix_event_id, new_content, new_html)
+
+        else:
+            # Standard Mode: Full message relay
+            new_content = f"[{sender_name}]: {state.original_text}\n{stats_str}{reply_block}"
+            new_html = f"<b>[{sender_name}]</b>: {state.original_text}<br>{stats_html}{reply_block_html}"
+            
+            if state.matrix_event_id:
+                await self.matrix_bot.edit_message(state.matrix_event_id, new_content, new_html)
     
     async def _update_message_with_replies(self, state: MessageState):
         """Update a Matrix message to include replies."""
@@ -193,11 +217,15 @@ class MeshtasticMatrixBridge:
     def _format_stats(self, stats_list: List[ReceptionStats]) -> str:
         """Format reception statistics (Text)."""
         sorted_stats = sorted(stats_list, key=lambda x: x.rssi, reverse=True)
+        if not sorted_stats:
+            return ""
         return f"*({self._build_stats_str(sorted_stats)})*"
 
     def _format_stats_html(self, stats_list: List[ReceptionStats]) -> str:
         """Format reception statistics (HTML)."""
         sorted_stats = sorted(stats_list, key=lambda x: x.rssi, reverse=True)
+        if not sorted_stats:
+             return ""
         return f"<small>({self._build_stats_str(sorted_stats)})</small>"
 
     def _build_stats_str(self, sorted_stats) -> str:
@@ -216,10 +244,19 @@ class MeshtasticMatrixBridge:
         content = event.body
         full_message = f"[{sender_name}]: {content}"
         
+        # Handle chunking if needed (skipped here for brevity/compactness logic focus)
+        # But if we did chunking, we probably only track the last one or something?
+        # Actually meshtastic sendText handles splitting internally usually? 
+        # No, the bridge code handled splitting manually before (lines 152-165 in original).
+        # We need to preserve splitting logic but maybe only track the "main" one?
+        # Or just track the single message if small.
+        
+        # Let's check original splitting logic
         max_len = 200
         encoded = full_message.encode('utf-8')
         
         if len(encoded) > max_len:
+            # Splitting case
             parts = []
             while encoded:
                 parts.append(encoded[:max_len])
@@ -228,10 +265,27 @@ class MeshtasticMatrixBridge:
             for i, part in enumerate(parts):
                 text_part = part.decode('utf-8', errors='ignore')
                 prefix = f"({i+1}/{len(parts)}) "
+                # We won't track split messages for now to avoid complexity in this step
                 self.meshtastic_interface.send_text(f"{prefix}{text_part}")
                 await asyncio.sleep(0.5)
         else:
-            self.meshtastic_interface.send_text(full_message)
+             packet = self.meshtastic_interface.send_text(full_message)
+             
+             # Normal case - Track this!
+             if packet and hasattr(packet, 'id'):
+                 packet_id = packet.id
+                 logger.info(f"Tracking Matrix-originated message {packet_id}")
+                 
+                 state = MessageState(
+                     packet_id=packet_id,
+                     matrix_event_id=None, # Will be set when stats arrive
+                     original_text=content, # User text
+                     sender=event.sender, # Matrix ID
+                     render_only_stats=True,
+                     related_event_id=event.event_id
+                 )
+                 self.message_state[packet_id] = state
+                 self.node_db.save_message_state(state)
     
     async def handle_node_info(self, node_id: str, short_name: Optional[str] = None, long_name: Optional[str] = None):
         """Handle NODEINFO packets to update the node database."""

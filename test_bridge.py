@@ -155,5 +155,51 @@ class TestBridge(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_matrix_originated_compact_mode(self):
+        async def run():
+            # 1. User sends message
+            event = MagicMock()
+            event.sender = "@user:matrix.org"
+            event.body = "Matrix Message"
+            event.event_id = "user_event_id_555"
+            
+            # Mock send_text returning a packet
+            mock_packet = MagicMock()
+            mock_packet.id = 555
+            self.bridge.meshtastic_interface.send_text.return_value = mock_packet
+            
+            await self.bridge.handle_matrix_message(event)
+            
+            # Verify state initialized
+            self.assertIn(555, self.bridge.message_state)
+            state = self.bridge.message_state[555]
+            self.assertTrue(state.render_only_stats)
+            self.assertEqual(state.related_event_id, "user_event_id_555")
+            self.assertIsNone(state.matrix_event_id)
+            
+            # 2. Echo received (e.g. from MQTT report)
+            stats = ReceptionStats(gateway_id="GatewayX", rssi=-50, snr=5.0)
+            packet_echo = {"id": 555, "fromId": "!SomeNode", "decoded": {"text": "Matrix Message"}}
+            
+            # Mock sending the stats message (should happen now)
+            self.bridge.matrix_bot.send_message.return_value = "stats_event_id"
+            
+            await self.bridge.handle_meshtastic_message(packet_echo, "mqtt", stats)
+            
+            # Verify send_message was called with stats ONLY (and reply_to)
+            self.bridge.matrix_bot.send_message.assert_called_once()
+            call_args = self.bridge.matrix_bot.send_message.call_args
+            content = call_args[0][0]
+            kwargs = call_args[1]
+            
+            self.assertIn("GatewayX", content)
+            self.assertNotIn("Matrix Message", content) # Should not repeat text
+            self.assertEqual(kwargs['reply_to'], "user_event_id_555")
+            
+            # Verify state updated
+            self.assertEqual(self.bridge.message_state[555].matrix_event_id, "stats_event_id")
+
+        asyncio.run(run())
+
 if __name__ == '__main__':
     unittest.main()

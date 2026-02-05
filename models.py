@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import time
-from typing import List
+from typing import List, Optional
 
 @dataclass
 class ReceptionStats:
