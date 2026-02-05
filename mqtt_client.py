@@ -3,6 +3,7 @@ import logging
 import base64
 import paho.mqtt.client as mqtt
 from meshtastic import mesh_pb2, portnums_pb2
+from meshtastic.protobuf import mqtt_pb2
 from google.protobuf.message import DecodeError
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -76,7 +77,7 @@ class MqttClient:
             # if msg.topic.endswith("/json"): ...
             
             # Try parsing as ServiceEnvelope
-            se = mesh_pb2.ServiceEnvelope()
+            se = mqtt_pb2.ServiceEnvelope()
             try:
                 se.ParseFromString(msg.payload)
             except DecodeError:

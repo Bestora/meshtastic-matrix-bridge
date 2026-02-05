@@ -24,8 +24,7 @@ class MeshtasticInterface:
                 # TCPInterface is blocking, so we run it in a thread
                 self.interface = await asyncio.to_thread(
                     meshtastic.tcp_interface.TCPInterface,
-                    hostname=config.MESHTASTIC_HOST,
-                    retryOutage=True
+                    hostname=config.MESHTASTIC_HOST
                 )
                 
                 # Subscribe to message events
