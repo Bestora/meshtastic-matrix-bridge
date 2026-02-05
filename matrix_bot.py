@@ -14,11 +14,30 @@ class MatrixBot:
 
     async def start(self):
         logger.info(f"Connecting to Matrix as {config.MATRIX_USER}...")
-        resp = await self.client.login(config.MATRIX_PASSWORD)
-        
-        if hasattr(resp, 'error'):
-             logger.error(f"Matrix Login failed: {resp}")
-             return
+
+        # Check if password is actually an access token
+        if config.MATRIX_PASSWORD.startswith("syt_"):
+            logger.info("Detected Access Token. Skipping password login.")
+            self.client.access_token = config.MATRIX_PASSWORD
+            self.client.user_id = config.MATRIX_USER
+        else:
+            resp = await self.client.login(config.MATRIX_PASSWORD)
+            
+            logger.info(f"DEBUG: Login response type: {type(resp)}")
+            if hasattr(resp, 'error'):
+                 logger.error(f"Matrix Login failed: {resp}")
+                 return
+
+        # Resolve Room Alias if needed
+        if self.room_id.startswith("#"):
+            logger.info(f"Resolving room alias {self.room_id}...")
+            resp = await self.client.room_resolve_alias(self.room_id)
+            if hasattr(resp, 'room_id'):
+                self.room_id = resp.room_id
+                logger.info(f"Resolved to {self.room_id}")
+            else:
+                logger.error(f"Could not resolve room alias: {resp}")
+                return
 
         logger.info(f"Logged in. Initial synchronization...")
         await self.client.sync(timeout=30000, full_state=True) # Initial sync
