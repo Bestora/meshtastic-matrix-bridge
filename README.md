@@ -55,3 +55,6 @@ The bridge uses `asyncio` to manage concurrent connections:
 - **MeshtasticInterface**: Uses the official `meshtastic` python library to connect to the local node.
 
 A central state manager tracks `Packet ID` <-> `Matrix Event ID` mappings to handle edits and reactions.
+
+## Warning
+It's fully generated/vibe coded with AI, so it might be unstable or have bugs. Use with caution.
