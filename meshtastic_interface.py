@@ -12,22 +12,33 @@ class MeshtasticInterface:
     def __init__(self, bridge):
         self.bridge = bridge
         self.interface = None
+        self._connect_task = None
 
     def start(self):
-        logger.info(f"Connecting to Meshtastic Node at {config.MESHTASTIC_HOST}...")
-        try:
-            self.interface = meshtastic.tcp_interface.TCPInterface(
-                hostname=config.MESHTASTIC_HOST,
-                retryOutage=True
-            )
-            
-            # Subscribe to message events
-            pub.subscribe(self._on_meshtastic_message, "meshtastic.receive")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Meshtastic LAN node: {e}")
+        self._connect_task = asyncio.create_task(self._connect_loop())
+
+    async def _connect_loop(self):
+        while True:
+            try:
+                logger.info(f"Connecting to Meshtastic Node at {config.MESHTASTIC_HOST}...")
+                # TCPInterface is blocking, so we run it in a thread
+                self.interface = await asyncio.to_thread(
+                    meshtastic.tcp_interface.TCPInterface,
+                    hostname=config.MESHTASTIC_HOST,
+                    retryOutage=True
+                )
+                
+                # Subscribe to message events
+                pub.subscribe(self._on_meshtastic_message, "meshtastic.receive")
+                logger.info("Connected to Meshtastic Node!")
+                return
+            except Exception as e:
+                logger.error(f"Failed to connect to Meshtastic LAN node: {e}. Retrying in 5 seconds...")
+                await asyncio.sleep(5)
 
     def stop(self):
+        if self._connect_task:
+            self._connect_task.cancel()
         if self.interface:
             self.interface.close()
 

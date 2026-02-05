@@ -23,16 +23,27 @@ class MqttClient:
             
         if config.MQTT_USE_TLS:
             self.client.tls_set()
+            
+        self._connect_task = None
 
     def start(self):
-        logger.info(f"Connecting to MQTT Broker {config.MQTT_BROKER}...")
-        try:
-            self.client.connect(config.MQTT_BROKER, config.MQTT_PORT, 60)
-            self.client.loop_start()
-        except Exception as e:
-            logger.error(f"Failed to connect to MQTT: {e}")
+        self._connect_task = asyncio.create_task(self._connect_loop())
+
+    async def _connect_loop(self):
+        while True:
+            try:
+                logger.info(f"Connecting to MQTT Broker {config.MQTT_BROKER}...")
+                await asyncio.to_thread(self.client.connect, config.MQTT_BROKER, config.MQTT_PORT, 60)
+                self.client.loop_start()
+                logger.info("MQTT Client loop started.")
+                return
+            except Exception as e:
+                logger.error(f"Failed to connect to MQTT: {e}. Retrying in 5 seconds...")
+                await asyncio.sleep(5)
 
     def stop(self):
+        if self._connect_task:
+            self._connect_task.cancel()
         self.client.loop_stop()
         self.client.disconnect()
 
