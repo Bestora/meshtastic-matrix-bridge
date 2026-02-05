@@ -21,3 +21,4 @@ class MessageState:
     last_update: float = field(default_factory=time.time)
     render_only_stats: bool = False
     related_event_id: Optional[str] = None
+    parent_packet_id: Optional[int] = None

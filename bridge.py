@@ -163,13 +163,25 @@ class MeshtasticMatrixBridge:
 
             if is_emoji_reaction:
                  # Logic for "Edit Original" (Appended Text)
-                stats_str = self._format_stats([stats])
-                # Append to original state
-                reply_line = f"  ↳ [{sender_name}]: {clean_text} {stats_str}"
-                
+                 # New Logic: Create a MessageState for the reply to support de-duplication/aggregation
+                reply_state = MessageState(
+                    packet_id=packet_id,
+                    matrix_event_id=None,
+                    original_text=clean_text,
+                    sender=sender,
+                    reception_list=[stats],
+                    parent_packet_id=reply_id,
+                    last_update=time.time()
+                )
+                self.message_state[packet_id] = reply_state
+                self.node_db.save_message_state(reply_state)
+
                 if not hasattr(original_state, 'replies'):
                     original_state.replies = []
-                original_state.replies.append(reply_line)
+                
+                # Check if we already have this packet_id in replies (shouldn't happen for new, but for safety)
+                if packet_id not in original_state.replies:
+                    original_state.replies.append(packet_id)
                 
                 # Update the Matrix message to include the reply (edit)
                 await self._update_message_with_replies(original_state)
@@ -224,8 +236,17 @@ class MeshtasticMatrixBridge:
 
         state.reception_list.append(new_stats)
         state.last_update = time.time()
-        await self._update_matrix_message(state)
         self.node_db.save_message_state(state)
+        
+        # If this message is a child (reaction), update the parent
+        if state.parent_packet_id:
+            parent_state = self.message_state.get(state.parent_packet_id)
+            if parent_state:
+                await self._update_matrix_message(parent_state)
+            else:
+                logger.warning(f"Parent state {state.parent_packet_id} not found for child {packet_id}")
+        else:
+            await self._update_matrix_message(state)
 
     async def _update_matrix_message(self, state: MessageState):
         # Resolve sender name from database
@@ -238,8 +259,28 @@ class MeshtasticMatrixBridge:
         reply_block = ""
         reply_block_html = ""
         if hasattr(state, 'replies') and state.replies:
-            reply_block = "\n" + "\n".join(state.replies)
-            reply_block_html = "<br>" + "<br>".join([r.replace('<','&lt;') for r in state.replies])
+            reply_lines = []
+            reply_lines_html = []
+            
+            for reply_item in state.replies:
+                if isinstance(reply_item, int):
+                    # It's a Packet ID pointing to a Reaction State
+                    r_state = self.message_state.get(reply_item)
+                    if r_state:
+                        r_sender = self.node_db.get_node_name(r_state.sender)
+                        r_stats = self._format_stats(r_state.reception_list)
+                        r_stats_html = self._format_stats_html(r_state.reception_list)
+                        # "  ↳ [Sender]: Text (Stats)"
+                        reply_lines.append(f"  ↳ [{r_sender}]: {r_state.original_text} {r_stats}")
+                        reply_lines_html.append(f"&nbsp;&nbsp;↳ [{r_sender}]: {r_state.original_text} {r_stats_html}")
+                else:
+                    # Legacy String
+                    reply_lines.append(str(reply_item))
+                    reply_lines_html.append(str(reply_item).replace('<','&lt;'))
+
+            if reply_lines:
+                reply_block = "\n" + "\n".join(reply_lines)
+                reply_block_html = "<br>" + "<br>".join(reply_lines_html)
 
         # Render Logic
         if state.render_only_stats:

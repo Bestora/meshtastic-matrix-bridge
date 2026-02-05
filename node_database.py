@@ -51,7 +51,11 @@ class NodeDatabase:
             except sqlite3.OperationalError:
                 pass # Already exists
 
-            conn.commit()
+            try:
+                conn.execute('ALTER TABLE messages ADD COLUMN parent_packet_id INTEGER DEFAULT NULL')
+            except sqlite3.OperationalError:
+                pass # Already exists
+
             conn.commit()
             logger.info(f"Node database initialized at {self.db_path}")
 
@@ -115,8 +119,8 @@ class NodeDatabase:
         
         with self._get_connection() as conn:
             conn.execute('''
-                INSERT INTO messages (packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id, parent_packet_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(packet_id) DO UPDATE SET
                     matrix_event_id = excluded.matrix_event_id,
                     original_text = excluded.original_text,
@@ -125,7 +129,8 @@ class NodeDatabase:
                     replies_json = excluded.replies_json,
                     last_update = excluded.last_update,
                     render_only_stats = excluded.render_only_stats,
-                    related_event_id = excluded.related_event_id
+                    related_event_id = excluded.related_event_id,
+                    parent_packet_id = excluded.parent_packet_id
             ''', (
                 state.packet_id, 
                 state.matrix_event_id, 
@@ -135,7 +140,8 @@ class NodeDatabase:
                 replies_json, 
                 state.last_update,
                 state.render_only_stats,
-                state.related_event_id
+                state.related_event_id,
+                state.parent_packet_id
             ))
             conn.commit()
     
@@ -143,11 +149,11 @@ class NodeDatabase:
         """Load all MessageState objects from the database."""
         states = {}
         with self._get_connection() as conn:
-            cursor = conn.execute('SELECT packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id FROM messages')
+            cursor = conn.execute('SELECT packet_id, matrix_event_id, original_text, sender, reception_list_json, replies_json, last_update, render_only_stats, related_event_id, parent_packet_id FROM messages')
             rows = cursor.fetchall()
             
             for row in rows:
-                packet_id, matrix_event_id, text, sender, rx_json, replies_json, last_update, render_only_stats, related_event_id = row
+                packet_id, matrix_event_id, text, sender, rx_json, replies_json, last_update, render_only_stats, related_event_id, parent_packet_id = row
                 
                 try:
                     rx_list_data = json.loads(rx_json)
@@ -164,7 +170,8 @@ class NodeDatabase:
                         replies=replies,
                         last_update=last_update,
                         render_only_stats=bool(render_only_stats),
-                        related_event_id=related_event_id
+                        related_event_id=related_event_id,
+                        parent_packet_id=parent_packet_id
                     )
                     states[packet_id] = state
                 except Exception as e:
