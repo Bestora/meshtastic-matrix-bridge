@@ -112,13 +112,18 @@ class MeshtasticMatrixBridge:
             
             # Heuristic: If text is short (likely emoji/reaction), append to original.
             # Otherwise, send as a Matrix Reply.
-            is_emoji_reaction = len(text) < 5 
+            clean_text = text.strip()
+            # Emojis can be multi-byte (up to 8-10 bytes for complex flags/families)
+            # A strict limit of 5 is dangerous. Let's try 12 "chars".
+            is_emoji_reaction = len(clean_text) < 12 
+            
+            logger.debug(f"Reply Analysis: text='{clean_text}', len={len(clean_text)}, is_emoji={is_emoji_reaction}")
 
             if is_emoji_reaction:
                  # Logic for "Edit Original" (Appended Text)
                 stats_str = self._format_stats([stats])
                 # Append to original state
-                reply_line = f"  ↳ [{sender_name}]: {text} {stats_str}"
+                reply_line = f"  ↳ [{sender_name}]: {clean_text} {stats_str}"
                 
                 if not hasattr(original_state, 'replies'):
                     original_state.replies = []

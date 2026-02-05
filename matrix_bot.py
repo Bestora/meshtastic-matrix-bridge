@@ -163,5 +163,13 @@ class MatrixBot:
         if event.sender == self.client.user_id:
             return
 
-        logger.info(f"Matrix reaction {event.content} from {event.sender}")
+        # ReactionEvent might not have .content attribute directly in some nio versions
+        # Use .source['content'] for safety
+        content = event.source.get('content', {})
+        logger.info(f"Matrix reaction {content} from {event.sender}")
+        
+        # We need to pass a unified object or modify usage in bridge. 
+        # Bridge expects event object with .content
+        # Let's attach it or wrap it
+        event.content = content # Monkey patch for bridge usage
         await self.bridge.handle_matrix_reaction(event)
