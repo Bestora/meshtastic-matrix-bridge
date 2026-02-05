@@ -1,15 +1,25 @@
 import asyncio
 import unittest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from bridge import MeshtasticMatrixBridge
 from models import ReceptionStats
 
 class TestBridge(unittest.TestCase):
     def setUp(self):
+        # Patch NodeDatabase to prevent DB operations
+        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.mock_node_db_cls = self.node_db_patcher.start()
+        self.mock_node_db = self.mock_node_db_cls.return_value
+        self.mock_node_db.get_node_name.side_effect = lambda x: x 
+        self.mock_node_db.load_message_states.return_value = {}
+
         self.bridge = MeshtasticMatrixBridge()
         self.bridge.matrix_bot = AsyncMock()
         self.bridge.mqtt_client = MagicMock()
         self.bridge.meshtastic_interface = MagicMock()
+        
+    def tearDown(self):
+        self.node_db_patcher.stop()
 
     def test_new_message_flow(self):
         async def run():
@@ -23,9 +33,9 @@ class TestBridge(unittest.TestCase):
             
             # Verify sent to Matrix
             self.bridge.matrix_bot.send_message.assert_called_once()
-            args = self.bridge.matrix_bot.send_message.call_args[0][0]
-            self.assertIn("[!Sender]: Hello", args)
-            self.assertIn("GatewayA", args)
+            args = self.bridge.matrix_bot.send_message.call_args[0]
+            self.assertIn("[!Sender]: Hello", args[0])
+            self.assertIn("GatewayA", args[0])
             
             # Verify state stored
             self.assertIn(123, self.bridge.message_state)
@@ -47,7 +57,7 @@ class TestBridge(unittest.TestCase):
             
             # Verify edit called
             self.bridge.matrix_bot.edit_message.assert_called_once()
-            event_id, new_content = self.bridge.matrix_bot.edit_message.call_args[0]
+            event_id, new_content, _ = self.bridge.matrix_bot.edit_message.call_args[0]
             self.assertEqual(event_id, "event_id_1")
             self.assertIn("GatewayA", new_content)
             self.assertIn("GatewayB", new_content)
@@ -56,6 +66,46 @@ class TestBridge(unittest.TestCase):
             self.bridge.matrix_bot.reset_mock()
             await self.bridge.handle_meshtastic_message(packet, "mqtt", stats1)
             self.bridge.matrix_bot.edit_message.assert_not_called()
+
+        asyncio.run(run())
+
+    def test_reply_handling(self):
+        async def run():
+            # Initial message
+            stats = ReceptionStats(gateway_id="GatewayA", rssi=-80, snr=10.0)
+            packet_orig = {"id": 100, "fromId": "!Sender", "decoded": {"text": "Original"}}
+            self.bridge.matrix_bot.send_message.return_value = "event_100"
+            await self.bridge.handle_meshtastic_message(packet_orig, "mqtt", stats)
+            
+            # Text Reply (Should send NEW message)
+            packet_reply = {"id": 101, "fromId": "!Sender", "decoded": {"text": "This is a reply", "replyId": 100}}
+            self.bridge.matrix_bot.send_message.return_value = "event_101"
+            self.bridge.matrix_bot.reset_mock()
+            await self.bridge.handle_meshtastic_message(packet_reply, "mqtt", stats)
+            
+            # Verify send_message called with reply_to
+            self.bridge.matrix_bot.send_message.assert_called_once()
+            call_args = self.bridge.matrix_bot.send_message.call_args
+            args = call_args[0]
+            kwargs = call_args[1]
+            # args: (text, html)
+            self.assertIn("This is a reply", args[0])
+            self.assertEqual(kwargs['reply_to'], "event_100")
+
+            # Emoji Reply (Should EDIT original)
+            packet_emoji = {"id": 102, "fromId": "!Sender", "decoded": {"text": "❤️", "replyId": 100}}
+            self.bridge.matrix_bot.edit_message.reset_mock()
+            self.bridge.matrix_bot.send_message.reset_mock()
+            
+            await self.bridge.handle_meshtastic_message(packet_emoji, "mqtt", stats)
+            
+            # Verify edit_message called on original event
+            self.bridge.matrix_bot.edit_message.assert_called_once()
+            args = self.bridge.matrix_bot.edit_message.call_args[0]
+            # args: (event_id, text, html)
+            self.assertEqual(args[0], "event_100")
+            self.assertIn("❤️", args[1]) # Check text contains emoji
+            self.bridge.matrix_bot.send_message.assert_not_called()
 
         asyncio.run(run())
 

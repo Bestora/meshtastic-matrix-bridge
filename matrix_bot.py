@@ -58,34 +58,55 @@ class MatrixBot:
     async def stop(self):
         await self.client.close()
 
-    async def send_message(self, text: str) -> Optional[str]:
+    async def send_message(self, text: str, html: Optional[str] = None, reply_to: Optional[str] = None) -> Optional[str]:
+        content = {
+            "msgtype": "m.text",
+            "body": text
+        }
+        if html:
+            content["format"] = "org.matrix.custom.html"
+            content["formatted_body"] = html
+        
+        if reply_to:
+            content["m.relates_to"] = {
+                "m.in_reply_to": {
+                    "event_id": reply_to
+                }
+            }
+
         resp = await self.client.room_send(
             room_id=self.room_id,
             message_type="m.room.message",
-            content={
-                "msgtype": "m.text",
-                "body": text
-            }
+            content=content
         )
         if hasattr(resp, 'event_id'):
             return resp.event_id
         logger.error(f"Failed to send Matrix message: {resp}")
         return None
 
-    async def edit_message(self, event_id: str, new_text: str):
+    async def edit_message(self, event_id: str, new_text: str, new_html: Optional[str] = None):
         # Matrix edit is a new event with "m.relates_to"
+        new_content = {
+            "msgtype": "m.text",
+            "body": new_text
+        }
+        if new_html:
+            new_content["format"] = "org.matrix.custom.html"
+            new_content["formatted_body"] = new_html
+
         content = {
             "msgtype": "m.text",
             "body": new_text, # Fallback
-            "m.new_content": {
-                "msgtype": "m.text",
-                "body": new_text
-            },
+            "m.new_content": new_content,
             "m.relates_to": {
                 "rel_type": "m.replace",
                 "event_id": event_id
             }
         }
+        if new_html:
+            content["format"] = "org.matrix.custom.html"
+            content["formatted_body"] = new_html # Some clients look here too? NO, usually inside m.new_content
+
         await self.client.room_send(
             room_id=self.room_id,
             message_type="m.room.message",

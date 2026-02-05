@@ -30,6 +30,16 @@ class MeshtasticInterface:
                 
                 # Subscribe to message events
                 pub.subscribe(self._on_meshtastic_message, "meshtastic.receive")
+                
+                # Get Local Node ID
+                try:
+                    my_node = self.interface.myNodeInfo.myNode
+                    self.node_id = "!" + hex(my_node.id)[2:]
+                    logger.info(f"Connected to Meshtastic Node! Local ID: {self.node_id}")
+                except Exception as e:
+                    logger.warning(f"Could not get local node ID: {e}")
+                    self.node_id = "LAN_Node"
+
                 logger.info("Connected to Meshtastic Node!")
                 return
             except Exception as e:
@@ -52,9 +62,10 @@ class MeshtasticInterface:
 
     def send_text(self, text: str, channel_idx: int = 0):
         if self.interface:
-            self.interface.sendText(text, channelIndex=channel_idx)
+            return self.interface.sendText(text, channelIndex=channel_idx)
         else:
             logger.error("Cannot send text: Interface not connected")
+            return None
 
     def _on_meshtastic_message(self, packet, interface):
         try:
@@ -85,7 +96,7 @@ class MeshtasticInterface:
                     hop_count = packet["hopStart"] - packet["hopLimit"]
                 
                 stats = ReceptionStats(
-                    gateway_id="LAN_Node", # Indicator for local node
+                    gateway_id=self.node_id if hasattr(self, 'node_id') else "LAN_Node",
                     rssi=rssi,
                     snr=snr,
                     hop_count=hop_count
