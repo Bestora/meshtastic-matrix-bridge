@@ -24,7 +24,7 @@ class TestBridge(unittest.TestCase):
             # Verify sent to Matrix
             self.bridge.matrix_bot.send_message.assert_called_once()
             args = self.bridge.matrix_bot.send_message.call_args[0][0]
-            self.assertIn("**!Sender**: Hello", args)
+            self.assertIn("[!Sender]: Hello", args)
             self.assertIn("GatewayA", args)
             
             # Verify state stored

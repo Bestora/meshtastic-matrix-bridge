@@ -59,7 +59,7 @@ class MeshtasticMatrixBridge:
         
         # Format stats based on hop count
         stats_str = self._format_stats([stats])
-        full_msg = f"**{sender_name}**: {text}\n{stats_str}"
+        full_msg = f"[{sender_name}]: {text}\n{stats_str}"
 
         matrix_event_id = await self.matrix_bot.send_message(full_msg)
         
@@ -87,7 +87,7 @@ class MeshtasticMatrixBridge:
         
         # Format the reply with stats
         stats_str = self._format_stats([stats])
-        reply_line = f"  ↳ **{sender_name}**: {text} {stats_str}"
+        reply_line = f"  ↳ [{sender_name}]: {text} {stats_str}"
         
         # Add reply to the original message state
         if not hasattr(original_state, 'replies'):
@@ -113,7 +113,7 @@ class MeshtasticMatrixBridge:
         sender_name = self.node_db.get_node_name(state.sender)
         
         stats_str = self._format_stats(state.reception_list)
-        new_content = f"**{sender_name}**: {state.original_text}\n{stats_str}"
+        new_content = f"[{sender_name}]: {state.original_text}\n{stats_str}"
         
         # Add replies if any
         if state.replies:
