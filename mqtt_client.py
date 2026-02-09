@@ -150,8 +150,17 @@ class MqttClient:
             self._handle_nodeinfo(packet)
             return
         
-        if decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP:
-            text = decoded.payload.decode("utf-8")
+        is_text = decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP
+        is_reaction = decoded.portnum == 68 # REACTION_APP
+        
+        if is_text or is_reaction:
+            try:
+                text = decoded.payload.decode("utf-8")
+            except Exception:
+                text = ""
+            
+            # request_id in the Data protobuf is the packet ID being replied to
+            reply_id = decoded.request_id if decoded.request_id else 0
             
             # Construct a dict similar to what we expect in bridge
             packet_dict = {
@@ -160,7 +169,9 @@ class MqttClient:
                 "channel": packet.channel,
                 "channel_name": channel_name,
                 "decoded": {
-                    "text": text
+                    "text": text,
+                    "portnum": decoded.portnum,
+                    "replyId": reply_id
                 }
             }
             

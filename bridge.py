@@ -50,13 +50,29 @@ class MeshtasticMatrixBridge:
         packet_id = packet.get("id")
         sender = packet.get("fromId")
         decoded = packet.get("decoded", {})
+        portnum = decoded.get("portnum")
+        
+        # Extract text/emoji safely
         text = decoded.get("text", "")
-        reply_id = decoded.get("replyId", 0)
+        if not text and portnum == 68: # REACTION_APP
+            payload = decoded.get("payload")
+            if isinstance(payload, bytes):
+                try:
+                    text = payload.decode("utf-8")
+                except Exception:
+                    text = ""
+            elif isinstance(payload, str):
+                text = payload
+
+        # Extract reply ID (try different common field names)
+        # Meshtastic library/protobuf uses requestId/request_id for what we call replyId
+        reply_id = decoded.get("replyId", decoded.get("requestId", decoded.get("request_id", 0)))
+        
         channel = str(packet.get("channel", 0))
         channel_name = packet.get("channel_name", "Unknown")
         
-        logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Text='{text}', ReplyID={reply_id}, Port={packet.get('decoded', {}).get('portnum')}")
-        logger.debug(f"Full Decoded Packet: {decoded}")
+        logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Port={portnum}, Text='{text}', Found ReplyID={reply_id}")
+        logger.debug(f"Full Packet Detail: {packet}")
         
         # Filter by channel (support index strings or name strings)
         allowed_channels = config.MESHTASTIC_CHANNELS
@@ -65,6 +81,7 @@ class MeshtasticMatrixBridge:
             return
 
         if not text:
+             logger.debug(f"Ignoring empty packet {packet_id} (Port={portnum})")
              return
 
         # Check for "[Reaction to ID]: Emoji" pattern (legacy/bridge reactions)
@@ -79,31 +96,33 @@ class MeshtasticMatrixBridge:
                 return
             
             try:
-                reply_id = int(target_id_str)
-                text = emoji
-                logger.info(f"Parsed text reaction from {sender} to {reply_id}: {emoji}")
+                # If we don't already have a valid reply_id from the packet, use the parsed one
+                if not reply_id:
+                    reply_id = int(target_id_str)
+                    text = emoji
+                    logger.info(f"Parsed legacy text reaction from {sender} to {reply_id}: {emoji}")
+                else:
+                    # We have a real reply_id, just use the emoji part of the text if it was formatted this way
+                    text = emoji
             except ValueError:
                 pass
         
-        # HEURISTIC: If reply_id is 0 but text looks like an emoji/short-ack,
-        # attach it to the LAST message seen.
+        # HEURISTIC: Only if we still have no reply_id AND it looks like a reaction
         clean_text = text.strip()
-        # Heuristic: Short length AND no ASCII letters (to separate words like "test" from emojis)
         is_emoji_candidate = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
         
-        if reply_id == 0 and is_emoji_candidate and self.last_packet_id and self.last_packet_id != packet_id:
-            logger.info(f"Heuristic: Treating orphan '{clean_text}' as reaction to last packet {self.last_packet_id}")
+        if reply_id == 0 and (is_emoji_candidate or portnum == 68) and self.last_packet_id and self.last_packet_id != packet_id:
+            logger.info(f"Heuristic: Treating orphan '{clean_text}' (Port={portnum}) as reaction to last packet {self.last_packet_id}")
             reply_id = self.last_packet_id
 
         # Check race condition / pending processing
         if packet_id in self.processing_packets:
             logger.info(f"Packet {packet_id} is currently processing, waiting...")
             await self.processing_packets[packet_id].wait()
-            # After wait, fall through to check message_state
 
-        # Check if this is a reply to an existing message (or updated via heuristic)
+        # Check if this is a reply to an existing message
         if reply_id and reply_id in self.message_state:
-            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats)
+            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats, portnum)
         elif packet_id in self.message_state:
             await self._handle_duplicate_message(packet_id, reception_stats)
         else:
@@ -147,7 +166,7 @@ class MeshtasticMatrixBridge:
                 del self.processing_packets[packet_id]
             event.set()
     
-    async def _handle_reply_message(self, packet_id: int, sender: str, text: str, reply_id: int, stats: ReceptionStats):
+    async def _handle_reply_message(self, packet_id: int, sender: str, text: str, reply_id: int, stats: ReceptionStats, portnum: Optional[int] = None):
         """Handle a message that is a reply to another message."""
         # Mark as processing (even repliers might get duplicated from LAN/MQTT)
         event = asyncio.Event()
@@ -162,15 +181,17 @@ class MeshtasticMatrixBridge:
             
             sender_name = self.node_db.get_node_name(sender)
             
-            # Heuristic: If text is short (likely emoji/reaction), append to original.
-            # Otherwise, send as a Matrix Reply.
+            # Identify if this is a reaction (emoji) or a text reply.
+            # If portnum is REACTION_APP (68), it's definitely a reaction.
+            # Otherwise use heuristic.
             clean_text = text.strip()
-            # Emojis can be multi-byte (up to 8-10 bytes for complex flags/families)
-            # A strict limit of 5 is dangerous. Let's try 12 "chars".
-            # Also exclude text with ASCII letters to avoid words.
-            is_emoji_reaction = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
             
-            logger.debug(f"Reply Analysis: text='{clean_text}', len={len(clean_text)}, is_emoji={is_emoji_reaction}")
+            is_reaction_port = (portnum == 68)
+            is_emoji_candidate = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
+            
+            is_emoji_reaction = is_reaction_port or is_emoji_candidate
+            
+            logger.debug(f"Reply Analysis: text='{clean_text}', port={portnum}, is_emoji_reaction={is_emoji_reaction}")
 
             if is_emoji_reaction:
                  # Logic for "Edit Original" (Appended Text)
