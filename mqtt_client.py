@@ -159,8 +159,13 @@ class MqttClient:
             except Exception:
                 text = ""
             
-            # request_id in the Data protobuf is the packet ID being replied to
-            reply_id = decoded.request_id if decoded.request_id else 0
+            # If the protobuf has an explicit emoji field, use it as fallback/primary for reactions
+            emoji = getattr(decoded, "emoji", "")
+            if emoji and (is_reaction or not text):
+                text = emoji
+
+            # Meshtastic Data protobuf can have request_id or reply_id (depending on version/client)
+            reply_id = getattr(decoded, "reply_id", 0) or getattr(decoded, "request_id", 0)
             
             # Construct a dict similar to what we expect in bridge
             packet_dict = {
@@ -171,7 +176,8 @@ class MqttClient:
                 "decoded": {
                     "text": text,
                     "portnum": decoded.portnum,
-                    "replyId": reply_id
+                    "replyId": reply_id,
+                    "emoji": emoji
                 }
             }
             

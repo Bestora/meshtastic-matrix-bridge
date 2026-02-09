@@ -53,7 +53,9 @@ class MeshtasticMatrixBridge:
         portnum = decoded.get("portnum")
         
         # Extract text/emoji safely
-        text = decoded.get("text", "")
+        # Check 'text' and 'emoji' fields
+        text = decoded.get("text", decoded.get("emoji", ""))
+        
         if not text and portnum == 68: # REACTION_APP
             payload = decoded.get("payload")
             if isinstance(payload, bytes):
@@ -64,9 +66,21 @@ class MeshtasticMatrixBridge:
             elif isinstance(payload, str):
                 text = payload
 
-        # Extract reply ID (try different common field names)
-        # Meshtastic library/protobuf uses requestId/request_id for what we call replyId
-        reply_id = decoded.get("replyId", decoded.get("requestId", decoded.get("request_id", 0)))
+        # Broad search for reply/request linkage ID
+        # Meshtastic has used many names: replyId, requestId, request_id, reply_id, replyTo
+        # It can also be at the top level of the packet dict or inside 'decoded'
+        reply_id = 0
+        search_objs = [decoded, packet]
+        search_keys = ["replyId", "requestId", "request_id", "reply_id", "replyTo"]
+        
+        for obj in search_objs:
+            if not isinstance(obj, dict): continue
+            for key in search_keys:
+                val = obj.get(key)
+                if val and isinstance(val, int) and val != 0:
+                    reply_id = val
+                    break
+            if reply_id: break
         
         channel = str(packet.get("channel", 0))
         channel_name = packet.get("channel_name", "Unknown")
