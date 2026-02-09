@@ -28,6 +28,12 @@
   - Appends replies as notes under the original message in Matrix
   - Format: `  ↳ **SenderName**: reply text (stats)`
 
+### 6. Channel Filtering
+- **Updated**: `config.py` - Added `MESHTASTIC_CHANNELS` configuration (comma-separated list of channel indices)
+- **Updated**: `bridge.py` - Added check in `handle_meshtastic_message` to ignore packets from non-configured channels
+- **Updated**: `mqtt_client.py` - Now extracts and passes the `channel` index for all incoming messages
+- **Default Behavior**: Only bridges messages from channel 0 ("LongFast") unless configured otherwise.
+
 ### 5. Infrastructure
 - **Updated**: `compose.yaml` - Added volume mount `./data:/data` for database persistence
 - **Updated**: `.gitignore` - Added `data/` and `.env` to prevent committing sensitive files

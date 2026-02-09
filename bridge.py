@@ -52,10 +52,18 @@ class MeshtasticMatrixBridge:
         decoded = packet.get("decoded", {})
         text = decoded.get("text", "")
         reply_id = decoded.get("replyId", 0)
+        channel = str(packet.get("channel", 0))
+        channel_name = packet.get("channel_name", "Unknown")
         
-        logger.info(f"Processing Packet {packet_id} from {sender}. Text='{text}', ReplyID={reply_id}, Port={packet.get('decoded', {}).get('portnum')}")
+        logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Text='{text}', ReplyID={reply_id}, Port={packet.get('decoded', {}).get('portnum')}")
         logger.debug(f"Full Decoded Packet: {decoded}")
         
+        # Filter by channel (support index strings or name strings)
+        allowed_channels = config.MESHTASTIC_CHANNELS
+        if channel not in allowed_channels and channel_name not in allowed_channels:
+            logger.info(f"Ignoring packet {packet_id} from channel {channel} ({channel_name}) (Allowed: {allowed_channels})")
+            return
+
         if not text:
              return
 
@@ -371,10 +379,10 @@ class MeshtasticMatrixBridge:
                 text_part = part.decode('utf-8', errors='ignore')
                 prefix = f"({i+1}/{len(parts)}) "
                 # We won't track split messages for now to avoid complexity in this step
-                self.meshtastic_interface.send_text(f"{prefix}{text_part}")
+                self.meshtastic_interface.send_text(f"{prefix}{text_part}", channel_idx=config.MESHTASTIC_CHANNEL_IDX)
                 await asyncio.sleep(0.5)
         else:
-             packet = self.meshtastic_interface.send_text(full_message)
+             packet = self.meshtastic_interface.send_text(full_message, channel_idx=config.MESHTASTIC_CHANNEL_IDX)
              
              # Normal case - Track this!
              if packet and hasattr(packet, 'id'):
@@ -416,4 +424,4 @@ class MeshtasticMatrixBridge:
         
         if target_packet_id:
             logger.info(f"Forwarding reaction {key} to mesh for packet {target_packet_id}")
-            self.meshtastic_interface.send_tapback(target_packet_id, key)
+            self.meshtastic_interface.send_tapback(target_packet_id, key, channel_idx=config.MESHTASTIC_CHANNEL_IDX)

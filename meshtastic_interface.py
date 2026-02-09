@@ -120,6 +120,17 @@ class MeshtasticInterface:
                     hop_count=hop_count
                 )
                 
+                # Extract channel name from interface settings
+                channel_idx = packet.get("channel", 0)
+                channel_name = "Unknown"
+                if self.interface and self.interface.channels:
+                    for c in self.interface.channels:
+                        if c.index == channel_idx:
+                            channel_name = c.settings.name if hasattr(c.settings, 'name') else "Unknown"
+                            break
+                
+                packet["channel_name"] = channel_name
+
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_meshtastic_message(packet, "lan", stats),
                     asyncio.get_event_loop()

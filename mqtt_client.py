@@ -86,12 +86,16 @@ class MqttClient:
                 # Might be raw Packet or JSON. Ignoring for now if not ServiceEnvelope
                 return
 
-            self._process_service_envelope(se)
+            # Extract channel name from topic
+            # Example: msh/EU_868/2/e/LongFast/!ae614908
+            channel_name = self._extract_channel_name(msg.topic)
+            
+            self._process_service_envelope(se, channel_name)
 
         except Exception as e:
             logger.error(f"Error processing MQTT message: {e}", exc_info=True)
 
-    def _process_service_envelope(self, se):
+    def _process_service_envelope(self, se, channel_name: str):
         packet = se.packet
         if not packet.id:
             return
@@ -133,12 +137,12 @@ class MqttClient:
         
         if packet.HasField("decoded"):
             # Already decoded
-            self._handle_decoded_packet(packet, stats)
+            self._handle_decoded_packet(packet, stats, channel_name)
         elif packet.HasField("encrypted") and config.MESHTASTIC_CHANNEL_PSK:
             # Manual Decryption
-            self._try_decrypt(packet, stats)
+            self._try_decrypt(packet, stats, channel_name)
 
-    def _handle_decoded_packet(self, packet, stats):
+    def _handle_decoded_packet(self, packet, stats, channel_name: str):
         decoded = packet.decoded
         
         # Handle NODEINFO packets
@@ -153,6 +157,8 @@ class MqttClient:
             packet_dict = {
                 "id": packet.id,
                 "fromId": self._node_id_to_str(getattr(packet, 'from')),
+                "channel": packet.channel,
+                "channel_name": channel_name,
                 "decoded": {
                     "text": text
                 }
@@ -195,7 +201,7 @@ class MqttClient:
         # Convert integer node_id to !Hex string
         return "!" + hex(node_id)[2:]
 
-    def _try_decrypt(self, packet, stats):
+    def _try_decrypt(self, packet, stats, channel_name: str):
         try:
             key_b64 = config.MESHTASTIC_CHANNEL_PSK
             if not key_b64:
@@ -241,7 +247,7 @@ class MqttClient:
             packet.decoded.CopyFrom(data_pb)
             
             logger.info(f"Successfully decrypted packet {packet.id}")
-            self._handle_decoded_packet(packet, stats)
+            self._handle_decoded_packet(packet, stats, channel_name)
 
         except Exception as e:
             logger.error(f"Failed to decrypt packet {packet.id}: {e}")
@@ -249,3 +255,15 @@ class MqttClient:
     def _node_id_to_str(self, node_id):
         # Convert integer node_id to !Hex string
         return "!" + hex(node_id)[2:]
+
+    def _extract_channel_name(self, topic: str) -> str:
+        """
+        Extracts channel name from topic.
+        Example: msh/EU_868/2/e/LongFast/!ae614908 -> LongFast
+        """
+        parts = topic.split('/')
+        # The channel name is usually the part after 'e', 'c', or 'json'
+        for i, part in enumerate(parts):
+            if part in ('e', 'c', 'json') and i + 1 < len(parts):
+                return parts[i + 1]
+        return "Unknown"

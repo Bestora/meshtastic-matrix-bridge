@@ -22,6 +22,7 @@ MESHTASTIC_HOST = os.getenv("MESHTASTIC_HOST")
 MESHTASTIC_PORT = int(os.getenv("MESHTASTIC_PORT", 4403))
 MESHTASTIC_CHANNEL_IDX = int(os.getenv("MESHTASTIC_CHANNEL_IDX", 0))
 MESHTASTIC_CHANNEL_PSK = os.getenv("MESHTASTIC_CHANNEL_PSK")
+MESHTASTIC_CHANNELS = [x.strip() for x in os.getenv("MESHTASTIC_CHANNELS", "0").split(",") if x.strip()]
 
 # Database
 NODE_DB_PATH = os.getenv("NODE_DB_PATH", "/data/nodes.db")

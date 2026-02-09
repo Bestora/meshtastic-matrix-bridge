@@ -21,6 +21,9 @@ A Python bridge to connect a Meshtastic mesh (via MQTT and/or Local node) to a M
 - **Reaction Sync**:
     - **Mesh -> Matrix**: Tapbacks in the mesh update the original Matrix message with the emoji and sender.
     - **Matrix -> Mesh**: Reactions in Matrix are sent as Tapbacks to the mesh.
+- **Channel Filtering**:
+    - **Configurable Channels**: Only messages from specific channels (e.g., "LongFast") are bridged to Matrix.
+    - **Default Index**: Defaults to channel 0, but can be configured as a comma-separated list.
 - **Message Handling**:
     - **Long Messages**: Automatically splits Matrix messages > 200 chars into multiple packets.
     - **Display Names**: Uses Matrix display names instead of full user IDs in forwarded messages.
