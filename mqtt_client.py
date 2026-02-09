@@ -143,6 +143,7 @@ class MqttClient:
             self._try_decrypt(packet, stats, channel_name)
 
     def _handle_decoded_packet(self, packet, stats, channel_name: str):
+        from google.protobuf.json_format import MessageToDict
         decoded = packet.decoded
         
         # Handle NODEINFO packets
@@ -154,35 +155,45 @@ class MqttClient:
         is_reaction = decoded.portnum == 68 # REACTION_APP
         
         if is_text or is_reaction:
-            try:
-                text = decoded.payload.decode("utf-8")
-            except Exception:
-                text = ""
+            # Get all fields into a dict first. Include defaults to ensure we don't miss anything.
+            decoded_dict = MessageToDict(decoded, 
+                                         preserving_proto_field_name=True,
+                                         including_default_value_fields=True)
             
-            # If the protobuf has an explicit emoji field, use it as fallback/primary for reactions
-            emoji = getattr(decoded, "emoji", "")
+            # Ensure text/emoji are strings if present
+            text = decoded_dict.get("text", "")
+            if not text and "payload" in decoded_dict:
+                 # If text is not set but payload is, try to decode payload
+                 try:
+                     text = decoded.payload.decode("utf-8")
+                 except Exception:
+                     text = ""
+            
+            emoji = decoded_dict.get("emoji", "")
             if emoji and (is_reaction or not text):
                 text = emoji
 
-            # Meshtastic Data protobuf can have request_id or reply_id (depending on version/client)
-            reply_id = getattr(decoded, "reply_id", 0) or getattr(decoded, "request_id", 0)
+            # Meshtastic Data protobuf can have request_id or reply_id
+            # MessageToDict might convert these to 0 if they are default, or omit them 
+            # depending on settings. Preserving snake_case is important.
+            reply_id = decoded_dict.get("reply_id", decoded_dict.get("request_id", 0))
             
-            # Construct a dict similar to what we expect in bridge
+            # Construct a final dict for the bridge
             packet_dict = {
                 "id": packet.id,
                 "fromId": self._node_id_to_str(getattr(packet, 'from')),
                 "channel": packet.channel,
                 "channel_name": channel_name,
-                "decoded": {
-                    "text": text,
-                    "portnum": decoded.portnum,
-                    "replyId": reply_id,
-                    "emoji": emoji
-                }
+                "decoded": decoded_dict
             }
             
+            # Ensure normalized fields are present in nested decoded dict for bridge
+            packet_dict["decoded"]["text"] = text
+            packet_dict["decoded"]["portnum"] = decoded.portnum
+            packet_dict["decoded"]["replyId"] = reply_id
+            packet_dict["decoded"]["emoji"] = emoji
+            
             # Bridge handling (async call from sync callback requires run_coroutine_threadsafe)
-            # Use the stored event loop reference from the main thread
             if self.loop:
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_meshtastic_message(packet_dict, "mqtt", stats),

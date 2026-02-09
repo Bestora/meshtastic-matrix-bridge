@@ -53,8 +53,7 @@ class MeshtasticMatrixBridge:
         portnum = decoded.get("portnum")
         
         # Extract text/emoji safely
-        # Check 'text' and 'emoji' fields
-        text = decoded.get("text", decoded.get("emoji", ""))
+        text = str(decoded.get("text", decoded.get("emoji", "") or ""))
         
         if not text and portnum == 68: # REACTION_APP
             payload = decoded.get("payload")
@@ -67,26 +66,48 @@ class MeshtasticMatrixBridge:
                 text = payload
 
         # Broad search for reply/request linkage ID
-        # Meshtastic has used many names: replyId, requestId, request_id, reply_id, replyTo
-        # It can also be at the top level of the packet dict or inside 'decoded'
         reply_id = 0
         search_objs = [decoded, packet]
-        search_keys = ["replyId", "requestId", "request_id", "reply_id", "replyTo"]
+        # Search for common fields, including both camelCase and snake_case
+        search_keys = ["replyId", "reply_id", "requestId", "request_id", "replyTo", "reply_to"]
         
         for obj in search_objs:
             if not isinstance(obj, dict): continue
             for key in search_keys:
                 val = obj.get(key)
-                if val and isinstance(val, int) and val != 0:
-                    reply_id = val
-                    break
+                # Packet IDs are large numbers, ensure it's not 0 or None
+                if val:
+                    try:
+                        potential_id = int(val)
+                        if potential_id != 0:
+                            reply_id = potential_id
+                            break
+                    except (ValueError, TypeError):
+                        pass
             if reply_id: break
+            
+        # DEEP LINKAGE SEARCH: If still 0, check EVERY integer field for a match in message_state
+        if reply_id == 0:
+            for obj in search_objs:
+                if not isinstance(obj, dict): continue
+                for k, v in obj.items():
+                    try:
+                        v_int = int(v)
+                        if v_int != 0 and v_int in self.message_state and v_int != packet_id:
+                            logger.info(f"Deep Linkage Search found match: field '{k}' contains known packet ID {v_int}")
+                            reply_id = v_int
+                            break
+                    except (ValueError, TypeError):
+                        continue
+                if reply_id: break
         
         channel = str(packet.get("channel", 0))
         channel_name = packet.get("channel_name", "Unknown")
         
         logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Port={portnum}, Text='{text}', Found ReplyID={reply_id}")
-        logger.debug(f"Full Packet Detail: {packet}")
+        if reply_id == 0 and len(text) > 0 and (len(text) < 12 or portnum == 68):
+            # Only log full detail if it looks like a reaction but we failed to link it
+            logger.debug(f"Reaction linkage failed. Full Packet: {packet}")
         
         # Filter by channel (support index strings or name strings)
         allowed_channels = config.MESHTASTIC_CHANNELS
