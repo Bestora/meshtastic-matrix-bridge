@@ -155,12 +155,14 @@ class MeshtasticMatrixBridge:
             logger.info(f"Packet {packet_id} is currently processing, waiting...")
             await self.processing_packets[packet_id].wait()
 
-        # Check if this is a reply to an existing message
-        if reply_id and reply_id in self.message_state:
-            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats, portnum)
-        elif packet_id in self.message_state:
+        # Check if we already have this packet (Duplicate detection from multiple gateways/sources)
+        if packet_id in self.message_state:
             await self._handle_duplicate_message(packet_id, reception_stats)
+        elif reply_id and reply_id in self.message_state:
+            # New message, but it is a reply to something we know
+            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats, portnum)
         else:
+            # Brand new top-level message
             await self._handle_new_message(packet_id, sender, text, reception_stats)
 
     async def _handle_new_message(self, packet_id: int, sender: str, text: str, stats: ReceptionStats):
@@ -251,7 +253,7 @@ class MeshtasticMatrixBridge:
                     original_state.replies.append(packet_id)
                 
                 # Update the Matrix message to include the reply (edit)
-                await self._update_message_with_replies(original_state)
+                await self._update_matrix_message(original_state)
                 self.node_db.save_message_state(original_state)
                 logger.info(f"Added reaction {packet_id} to {reply_id}")
 
@@ -265,7 +267,7 @@ class MeshtasticMatrixBridge:
                 original_sender_name = self.node_db.get_node_name(original_state.sender)
                 original_short = (original_state.original_text[:50] + '...') if len(original_state.original_text) > 50 else original_state.original_text
                 
-                quote_text = f"> <{original_sender_name}> {original_short}\n\n"
+                quote_text = f" > <{original_sender_name}> {original_short}\n\n"
                 
                 # HTML fallback
                 room_id = self.matrix_bot.room_id
@@ -286,7 +288,8 @@ class MeshtasticMatrixBridge:
                         matrix_event_id=matrix_event_id,
                         original_text=text,
                         sender=sender,
-                        reception_list=[stats]
+                        reception_list=[stats],
+                        parent_packet_id=reply_id
                     )
                      self.message_state[packet_id] = state
                      self.node_db.save_message_state(state)
@@ -305,13 +308,14 @@ class MeshtasticMatrixBridge:
         state.last_update = time.time()
         self.node_db.save_message_state(state)
         
-        # If this message is a child (reaction), update the parent
-        if state.parent_packet_id:
+        # If this message is a reaction (has parent but NO matrix_event_id), update parent.
+        # Otherwise, update this message itself.
+        if state.parent_packet_id and not state.matrix_event_id:
             parent_state = self.message_state.get(state.parent_packet_id)
             if parent_state:
                 await self._update_matrix_message(parent_state)
             else:
-                logger.warning(f"Parent state {state.parent_packet_id} not found for child {packet_id}")
+                logger.warning(f"Parent state {state.parent_packet_id} not found for reaction {packet_id}")
         else:
             await self._update_matrix_message(state)
 
@@ -322,7 +326,24 @@ class MeshtasticMatrixBridge:
         stats_str = self._format_stats(state.reception_list)
         stats_html = self._format_stats_html(state.reception_list)
         
-        # Prepare Replies
+        # Reconstruct Quote if it's a True Reply
+        quote_text = ""
+        quote_html = ""
+        if state.parent_packet_id and state.matrix_event_id:
+            parent_state = self.message_state.get(state.parent_packet_id)
+            if parent_state:
+                parent_sender_name = self.node_db.get_node_name(parent_state.sender)
+                parent_short = (parent_state.original_text[:50] + '...') if len(parent_state.original_text) > 50 else parent_state.original_text
+                
+                quote_text = f"> <{parent_sender_name}> {parent_short}\n\n"
+                
+                room_id = self.matrix_bot.room_id
+                orig_evt_id = parent_state.matrix_event_id
+                quote_link = f'<a href="https://matrix.to/#/{room_id}/{orig_evt_id}">In reply to</a>'
+                quote_user = f'<a href="https://matrix.to/#/{parent_sender_name}">{parent_sender_name}</a>'
+                quote_html = f'<mx-reply><blockquote>{quote_link} {quote_user}<br>{parent_short}</blockquote></mx-reply>'
+
+        # Prepare Replies (Reactions attached to this message)
         reply_block = ""
         reply_block_html = ""
         if hasattr(state, 'replies') and state.replies:
@@ -373,8 +394,8 @@ class MeshtasticMatrixBridge:
 
         else:
             # Standard Mode: Full message relay
-            new_content = f"[{sender_name}]: {state.original_text}\n{stats_str}{reply_block}"
-            new_html = f"<b>[{sender_name}]</b>: {state.original_text}<br>{stats_html}{reply_block_html}"
+            new_content = f"{quote_text}[{sender_name}]: {state.original_text}\n{stats_str}{reply_block}"
+            new_html = f"{quote_html}<b>[{sender_name}]</b>: {state.original_text}<br>{stats_html}{reply_block_html}"
             
             if state.matrix_event_id:
                 await self.matrix_bot.edit_message(state.matrix_event_id, new_content, new_html)
