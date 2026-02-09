@@ -5,6 +5,7 @@ import paho.mqtt.client as mqtt
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import mqtt_pb2
 from google.protobuf.message import DecodeError
+from google.protobuf.json_format import MessageToDict
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import config
@@ -143,7 +144,6 @@ class MqttClient:
             self._try_decrypt(packet, stats, channel_name)
 
     def _handle_decoded_packet(self, packet, stats, channel_name: str):
-        from google.protobuf.json_format import MessageToDict
         decoded = packet.decoded
         
         # Handle NODEINFO packets
@@ -158,7 +158,7 @@ class MqttClient:
             # Get all fields into a dict first. Include defaults to ensure we don't miss anything.
             decoded_dict = MessageToDict(decoded, 
                                          preserving_proto_field_name=True,
-                                         including_default_value_fields=True)
+                                         always_print_fields_with_no_presence=True)
             
             # Ensure text/emoji are strings if present
             text = decoded_dict.get("text", "")
