@@ -355,16 +355,28 @@ class MeshtasticMatrixBridge:
         # Get the display name for the sender
         sender_name = await self.matrix_bot.get_display_name(event.sender)
         content = event.body
+        
+        # Handle Matrix Reply fallback/logic
+        reply_to_event_id = event.source.get('content', {}).get("m.relates_to", {}).get("m.in_reply_to", {}).get("event_id")
+        target_packet_id = None
+        if reply_to_event_id:
+            # Strip Matrix fallback from body
+            # The fallback usually starts with "> <@user:homeserver> quoted text" followed by \n\n
+            parts = content.split("\n\n", 1)
+            if len(parts) > 1 and parts[0].startswith(">"):
+                content = parts[1]
+                logger.debug(f"Stripped Matrix reply fallback. Clean text: {content}")
+            
+            # Try to resolve target Mesh packet ID
+            for pid, state in self.message_state.items():
+                if state.matrix_event_id == reply_to_event_id:
+                    target_packet_id = pid
+                    logger.info(f"Matrix message is a reply to Mesh packet {target_packet_id}")
+                    break
+
         full_message = f"[{sender_name}]: {content}"
         
-        # Handle chunking if needed (skipped here for brevity/compactness logic focus)
-        # But if we did chunking, we probably only track the last one or something?
-        # Actually meshtastic sendText handles splitting internally usually? 
-        # No, the bridge code handled splitting manually before (lines 152-165 in original).
-        # We need to preserve splitting logic but maybe only track the "main" one?
-        # Or just track the single message if small.
-        
-        # Let's check original splitting logic
+        # Handle chunking if needed
         max_len = 200
         encoded = full_message.encode('utf-8')
         
@@ -378,11 +390,16 @@ class MeshtasticMatrixBridge:
             for i, part in enumerate(parts):
                 text_part = part.decode('utf-8', errors='ignore')
                 prefix = f"({i+1}/{len(parts)}) "
-                # We won't track split messages for now to avoid complexity in this step
-                self.meshtastic_interface.send_text(f"{prefix}{text_part}", channel_idx=config.MESHTASTIC_CHANNEL_IDX)
+                # We only attach replyId to the first part to avoid mesh confusion
+                part_reply_id = target_packet_id if i == 0 else None
+                self.meshtastic_interface.send_text(f"{prefix}{text_part}", 
+                                                   channel_idx=config.MESHTASTIC_CHANNEL_IDX,
+                                                   reply_id=part_reply_id)
                 await asyncio.sleep(0.5)
         else:
-             packet = self.meshtastic_interface.send_text(full_message, channel_idx=config.MESHTASTIC_CHANNEL_IDX)
+             packet = self.meshtastic_interface.send_text(full_message, 
+                                                        channel_idx=config.MESHTASTIC_CHANNEL_IDX,
+                                                        reply_id=target_packet_id)
              
              # Normal case - Track this!
              if packet and hasattr(packet, 'id'):

@@ -2,7 +2,11 @@
 
 ## Changes Made
 
-### 1. Node Name Resolution with SQLite Database
+### 1. Improved Matrix Reply Handling
+- **Fixed**: Strip the quoted text fallback (e.g., lines starting with `>`) from Matrix messages when forwarding to Meshtastic.
+- **Improved**: If a Matrix message is a reply to a previous message that originated from the mesh, the bridge now preserves the threading by setting the `replyId` in the Meshtastic packet.
+
+### 2. Node Name Resolution with SQLite Database
 - **New File**: `node_database.py` - SQLite database module for storing and retrieving node information
 - **What it does**: 
   - Listens to NODEINFO packets from both MQTT and LAN connections
@@ -10,18 +14,18 @@
   - Resolves node IDs (e.g., `!ae614908`) to human-readable names
   - Database persists across restarts via Docker volume mount
 
-### 2. Hop Count Display
+### 3. Hop Count Display
 - **Updated**: `models.py` - Added `hop_count` field to `ReceptionStats`
 - **Updated**: `bridge.py` - Modified `_format_stats()` to show:
   - RSSI/SNR when `hop_count == 0` (direct reception)
   - Hop count when `hop_count > 0` (multi-hop messages)
 - **Updated**: `mqtt_client.py` and `meshtastic_interface.py` - Extract hop count from packets
 
-### 3. Matrix Display Names
+### 4. Matrix Display Names
 - **Updated**: `matrix_bot.py` - Added `get_display_name()` method
 - **Updated**: `bridge.py` - Uses display names instead of full user IDs when forwarding messages from Matrix to Meshtastic
 
-### 4. Reply Threading Support
+### 5. Reply Threading Support (Mesh -> Matrix)
 - **Updated**: `models.py` - Added `replies` field to `MessageState`
 - **Updated**: `bridge.py` - Added reply handling:
   - Detects when a Meshtastic message is a reply (via `replyId` field)
@@ -29,12 +33,12 @@
   - Format: `  ↳ **SenderName**: reply text (stats)`
 
 ### 6. Channel Filtering
-- **Updated**: `config.py` - Added `MESHTASTIC_CHANNELS` configuration (comma-separated list of channel indices)
+- **Updated**: `config.py` - Added `MESHTASTIC_CHANNELS` configuration (comma-separated list of channel indices or names)
 - **Updated**: `bridge.py` - Added check in `handle_meshtastic_message` to ignore packets from non-configured channels
-- **Updated**: `mqtt_client.py` - Now extracts and passes the `channel` index for all incoming messages
+- **Updated**: `mqtt_client.py` - Now extracts and passes the `channel` index and name for all incoming messages
 - **Default Behavior**: Only bridges messages from channel 0 ("LongFast") unless configured otherwise.
 
-### 5. Infrastructure
+### 7. Infrastructure
 - **Updated**: `compose.yaml` - Added volume mount `./data:/data` for database persistence
 - **Updated**: `.gitignore` - Added `data/` and `.env` to prevent committing sensitive files
 - **Updated**: `config.py` - Added `NODE_DB_PATH` configuration
@@ -66,3 +70,4 @@ BestNode: [Bestora]: Test bridge3
 3. Test reply functionality by replying to a message in Meshtastic
 4. Verify database persistence by restarting the container
 5. Check Matrix display name resolution
+6. Verify Matrix reply fallback stripping

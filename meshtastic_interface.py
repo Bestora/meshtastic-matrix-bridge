@@ -73,9 +73,9 @@ class MeshtasticInterface:
         else:
             logger.error("Cannot send tapback: Interface not connected")
 
-    def send_text(self, text: str, channel_idx: int = 0):
+    def send_text(self, text: str, channel_idx: int = 0, reply_id: Optional[int] = None):
         if self.interface:
-            return self.interface.sendText(text, channelIndex=channel_idx)
+            return self.interface.sendText(text, channelIndex=channel_idx, replyId=reply_id)
         else:
             logger.error("Cannot send text: Interface not connected")
             return None
