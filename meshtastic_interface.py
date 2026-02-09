@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 import logging
 import meshtastic.tcp_interface
 from meshtastic import portnums_pb2
