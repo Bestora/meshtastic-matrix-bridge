@@ -1,16 +1,15 @@
 import asyncio
 import logging
 import signal
-import sys
-from bridge import MeshtasticMatrixBridge
-import config
+from src.bridge import MeshtasticMatrixBridge
+from src import config
 
-# Configure Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
 
 async def main():
     bridge = MeshtasticMatrixBridge()
@@ -36,6 +35,7 @@ async def main():
         await bridge.stop()
 
 if __name__ == "__main__":
+    config.validate_config()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

@@ -2,9 +2,9 @@ import asyncio
 from typing import Optional
 import logging
 import meshtastic.tcp_interface
-from meshtastic import portnums_pb2
-import config
-from models import ReceptionStats
+from src import config
+from src.models import ReceptionStats
+from src.constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP, DEFAULT_NODE_NAME
 from pubsub import pub
 
 logger = logging.getLogger(__name__)
@@ -29,19 +29,21 @@ class MeshtasticInterface:
                     portNumber=config.MESHTASTIC_PORT
                 )
                 
-                # Subscribe to message events
                 pub.subscribe(self._on_meshtastic_message, "meshtastic.receive")
                 
-                # Get Local Node ID
                 try:
                     my_node = self.interface.myNodeInfo.myNode
                     self.node_id = "!" + hex(my_node.id)[2:]
                     logger.info(f"Connected to Meshtastic Node! Local ID: {self.node_id}")
                 except Exception as e:
                     logger.warning(f"Could not get local node ID: {e}")
-                    self.node_id = "LAN_Node"
+                    self.node_id = DEFAULT_NODE_NAME
 
                 logger.info("Connected to Meshtastic Node!")
+                
+                # Import existing node database from the local node
+                await self._import_node_database()
+                
                 return
             except Exception as e:
                 logger.error(f"Failed to connect to Meshtastic LAN node: {e}. Retrying in 5 seconds...")
@@ -54,17 +56,11 @@ class MeshtasticInterface:
             self.interface.close()
 
     def send_tapback(self, target_packet_id: int, emoji: str, channel_idx: int = 0):
-        """
-        Sends a tapback (reaction) to the mesh.
-        Uses REACTION_APP (68) so clients render it properly.
-        """
         if self.interface:
             try:
-                # Attempt to use sendData with replyId (recent meshtastic versions)
-                # portnums_pb2.REACTION_APP is usually 68
                 self.interface.sendData(
                     data=emoji.encode("utf-8"),
-                    portNum=68,
+                    portNum=REACTION_APP,
                     replyId=target_packet_id,
                     channelIndex=channel_idx
                 )
@@ -83,39 +79,30 @@ class MeshtasticInterface:
 
     def _on_meshtastic_message(self, packet, interface):
         try:
-            # packet is a dict
             logger.debug(f"LAN Message received: {packet}")
             
-            # Extract basic info
             packet_id = packet.get("id")
             from_id = packet.get("fromId")
             
             decoded = packet.get("decoded", {})
             portnum = decoded.get("portnum")
             
-            # Handle NODEINFO packets
-            if portnum == portnums_pb2.NODEINFO_APP:
+            if portnum == NODEINFO_APP:
                 self._handle_nodeinfo(packet)
                 return
             
-            # Check for supported apps
-            # TEXT_MESSAGE_APP = 1
-            # REACTION_APP = 68 (Commonly used, though maybe not in all pb2 yet)
-            is_text_like = portnum == portnums_pb2.TEXT_MESSAGE_APP or portnum == 68
+            is_text_like = portnum == TEXT_MESSAGE_APP or portnum == REACTION_APP
             
             if is_text_like:
-                # Create Mock Stats for LAN
-                # For LAN, RSSI/SNR might be in 'rxRSSI'/'rxSNR'
                 rssi = packet.get("rxRssi", 0)
                 snr = packet.get("rxSnr", 0.0)
                 
-                # Extract hop count
                 hop_count = 0
                 if "hopStart" in packet and "hopLimit" in packet:
                     hop_count = packet["hopStart"] - packet["hopLimit"]
                 
                 stats = ReceptionStats(
-                    gateway_id=self.node_id if hasattr(self, 'node_id') else "LAN_Node",
+                    gateway_id=self.node_id if hasattr(self, 'node_id') else DEFAULT_NODE_NAME,
                     rssi=rssi,
                     snr=snr,
                     hop_count=hop_count
@@ -134,7 +121,7 @@ class MeshtasticInterface:
 
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_meshtastic_message(packet, "lan", stats),
-                    asyncio.get_event_loop()
+                    self.bridge.loop
                 )
                 
         except Exception as e:
@@ -153,7 +140,39 @@ class MeshtasticInterface:
             if from_id:
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_node_info(from_id, short_name, long_name),
-                    asyncio.get_event_loop()
+                    self.bridge.loop
                 )
         except Exception as e:
             logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
+    
+    async def _import_node_database(self):
+        """Import all nodes from the Meshtastic node's database into our database."""
+        try:
+            if not self.interface or not hasattr(self.interface, 'nodes'):
+                logger.warning("Interface has no nodes attribute, skipping node DB import")
+                return
+            
+            node_count = 0
+            for node_id_int, node_info in self.interface.nodes.items():
+                try:
+                    # Convert node ID to hex string format
+                    node_id_str = "!" + hex(node_id_int)[2:]
+                    
+                    # Extract user information
+                    user = node_info.get('user', {})
+                    short_name = user.get('shortName')
+                    long_name = user.get('longName')
+                    
+                    # Only update if we have at least one name
+                    if short_name or long_name:
+                        await self.bridge.handle_node_info(node_id_str, short_name, long_name)
+                        node_count += 1
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to import node {node_id_int}: {e}")
+                    continue
+            
+            logger.info(f"Successfully imported {node_count} nodes from local Meshtastic database")
+            
+        except Exception as e:
+            logger.error(f"Error importing node database: {e}", exc_info=True)

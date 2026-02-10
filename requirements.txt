@@ -2,5 +2,4 @@ meshtastic
 paho-mqtt
 matrix-nio
 python-dotenv
-asyncio
 cryptography

@@ -1,13 +1,13 @@
 import asyncio
 import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
-from bridge import MeshtasticMatrixBridge
-from models import ReceptionStats
+from src.bridge import MeshtasticMatrixBridge
+from src.models import ReceptionStats
 
 class TestBridge(unittest.TestCase):
     def setUp(self):
         # Patch NodeDatabase to prevent DB operations
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x 
@@ -151,7 +151,7 @@ class TestBridge(unittest.TestCase):
             
             await self.bridge.handle_matrix_reaction(event)
             
-            self.bridge.meshtastic_interface.send_tapback.assert_called_with(999, "👍")
+            self.bridge.meshtastic_interface.send_tapback.assert_called_with(999, "👍", channel_idx=0)
 
         asyncio.run(run())
 
