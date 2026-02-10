@@ -84,8 +84,19 @@ See `REFACTORING.md` for details on improvements made.
 
 Run tests with:
 ```bash
+# Core tests (6 tests)
 python test_bridge.py
+
+# Extended tests (22 tests)
+python test_coverage_extended.py
+
+# Run all tests
+python test_bridge.py && python test_coverage_extended.py
 ```
+
+**Test Coverage**: ~25% overall (28 tests total)
+- See `TEST_SUMMARY.md` for detailed coverage analysis
+- See `TEST_COVERAGE_ANALYSIS.md` for feature-by-feature breakdown
 
 ## Warning
 This project was initially AI-generated, so while it has been refactored and tested, use with caution in production environments.
