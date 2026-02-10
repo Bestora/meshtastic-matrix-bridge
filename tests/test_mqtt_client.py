@@ -16,7 +16,7 @@ class TestMQTTClient(unittest.TestCase):
     def tearDown(self):
         self.bridge.loop.close()
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_initialization(self, mock_mqtt):
         client = MqttClient(self.bridge)
         
@@ -24,7 +24,7 @@ class TestMQTTClient(unittest.TestCase):
         self.assertIsNone(client.client)
         mock_mqtt.Client.assert_called_once()
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_on_connect_success(self, mock_mqtt):
         mock_client = MagicMock()
         client = MqttClient(self.bridge)
@@ -35,7 +35,7 @@ class TestMQTTClient(unittest.TestCase):
         
         mock_client.subscribe.assert_called_once_with('msh/US/#')
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_on_connect_failure(self, mock_mqtt):
         mock_client = MagicMock()
         client = MqttClient(self.bridge)
@@ -47,8 +47,8 @@ class TestMQTTClient(unittest.TestCase):
         # Should not subscribe on failure
         mock_client.subscribe.assert_not_called()
 
-    @patch('mqtt_client.mqtt')
-    @patch('mqtt_client.mqtt_pb2')
+    @patch('src.adapters.mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt_pb2')
     def test_process_service_envelope_decoded(self, mock_pb2, mock_mqtt):
         from meshtastic import portnums_pb2
         
@@ -71,7 +71,7 @@ class TestMQTTClient(unittest.TestCase):
         # Should call handle_decoded_packet
         # Can't easily verify without running async loop, but at least no crash
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_extract_channel_name_from_topic(self, mock_mqtt):
         from utils import extract_channel_name_from_topic
         
@@ -81,7 +81,7 @@ class TestMQTTClient(unittest.TestCase):
         self.assertEqual(extract_channel_name_from_topic("msh/US/2/json/Test/!node"), "Test")
         self.assertEqual(extract_channel_name_from_topic("msh/US/2"), "Unknown")
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_handle_nodeinfo(self, mock_mqtt):
         from meshtastic import mesh_pb2, portnums_pb2
         
@@ -101,12 +101,12 @@ class TestMQTTClient(unittest.TestCase):
         mock_user.short_name = "TestNode"
         mock_user.long_name = "Test Node Full"
         
-        with patch('mqtt_client.mesh_pb2.User') as MockUser:
+        with patch('src.adapters.mqtt_client.mesh_pb2.User') as MockUser:
             MockUser.return_value = mock_user
             client._handle_nodeinfo(packet)
 
-    @patch('mqtt_client.mqtt')
-    @patch('mqtt_client.Cipher')
+    @patch('src.adapters.mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.Cipher')
     def test_try_decrypt_with_psk(self, mock_cipher, mock_mqtt):
         client = MqttClient(self.bridge)
         
@@ -124,7 +124,7 @@ class TestMQTTClient(unittest.TestCase):
             except:
                 pass  # Decryption errors are acceptable in unit test
 
-    @patch('mqtt_client.mqtt')
+    @patch('src.adapters.mqtt_client.mqtt')
     def test_stop(self, mock_mqtt):
         mock_client = MagicMock()
         client = MqttClient(self.bridge)

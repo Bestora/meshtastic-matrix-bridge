@@ -6,8 +6,14 @@ Runs all test suites and provides comprehensive summary
 
 import subprocess
 import sys
+import os
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 @dataclass
 class TestResult:
@@ -26,11 +32,16 @@ def run_test_file(filename: str) -> TestResult:
     print('='*60)
     
     try:
+        # Set PYTHONPATH to include project root
+        env = os.environ.copy()
+        env['PYTHONPATH'] = str(project_root)
+        
         result = subprocess.run(
             [sys.executable, filename],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=env
         )
         
         output = result.stdout + result.stderr
@@ -127,6 +138,9 @@ def print_summary(results: List[TestResult]):
 
 
 def main():
+    # Get the tests directory path
+    tests_dir = Path(__file__).parent
+    
     test_files = [
         'test_bridge.py',
         'test_coverage_extended.py',
@@ -144,7 +158,8 @@ def main():
     
     results = []
     for test_file in test_files:
-        result = run_test_file(test_file)
+        test_path = tests_dir / test_file
+        result = run_test_file(str(test_path))
         results.append(result)
     
     all_pass = print_summary(results)

@@ -11,16 +11,16 @@ class TestMatrixBot(unittest.TestCase):
         self.bridge.handle_matrix_message = AsyncMock()
         self.bridge.handle_matrix_reaction = AsyncMock()
         
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_initialization(self, mock_client):
-        with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-            with patch('config.MATRIX_USER', '@user:matrix.org'):
+        with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+            with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                 bot = MatrixBot(self.bridge)
                 
                 self.assertEqual(bot.bridge, self.bridge)
                 mock_client.assert_called_once()
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_start_with_password(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
@@ -32,10 +32,10 @@ class TestMatrixBot(unittest.TestCase):
             mock_instance.login.return_value = login_response
             
             # Mock room resolution
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
-                    with patch('config.MATRIX_PASSWORD', 'password'):
-                        with patch('config.MATRIX_ROOM_ID', '#room:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
+                    with patch('src.config.MATRIX_PASSWORD', 'password'):
+                        with patch('src.config.MATRIX_ROOM_ID', '#room:matrix.org'):
                             bot = MatrixBot(self.bridge)
                             bot.client = mock_instance
                             bot.room_id = '!resolved:matrix.org'
@@ -48,7 +48,7 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_send_message(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
@@ -59,8 +59,8 @@ class TestMatrixBot(unittest.TestCase):
             mock_response.event_id = "$event123"
             mock_instance.room_send.return_value = mock_response
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -72,7 +72,7 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_send_message_with_reply(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
@@ -82,8 +82,8 @@ class TestMatrixBot(unittest.TestCase):
             mock_response.event_id = "$event456"
             mock_instance.room_send.return_value = mock_response
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -100,14 +100,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_edit_message(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -123,7 +123,7 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_get_display_name_room_specific(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
@@ -132,8 +132,8 @@ class TestMatrixBot(unittest.TestCase):
             # Mock get_displayname returning room-specific name
             mock_instance.get_displayname.return_value = MagicMock(displayname="RoomName")
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -144,7 +144,7 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_get_display_name_fallback(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
@@ -153,8 +153,8 @@ class TestMatrixBot(unittest.TestCase):
             # Mock get_displayname returning None/empty
             mock_instance.get_displayname.return_value = MagicMock(displayname=None)
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -166,14 +166,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_on_room_message_filters_own_messages(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@bot:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@bot:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -193,14 +193,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_on_room_message_filters_wrong_room(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@bot:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@bot:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!correct:matrix.org'
@@ -220,14 +220,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_on_room_message_processes_valid(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@bot:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@bot:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -247,14 +247,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_on_reaction(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@bot:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@bot:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.room_id = '!room:matrix.org'
@@ -273,14 +273,14 @@ class TestMatrixBot(unittest.TestCase):
         
         asyncio.run(run())
 
-    @patch('matrix_bot.AsyncClient')
+    @patch('src.adapters.matrix_bot.AsyncClient')
     def test_stop(self, mock_client):
         async def run():
             mock_instance = AsyncMock()
             mock_client.return_value = mock_instance
             
-            with patch('config.MATRIX_HOMESERVER', 'https://matrix.org'):
-                with patch('config.MATRIX_USER', '@user:matrix.org'):
+            with patch('src.config.MATRIX_HOMESERVER', 'https://matrix.org'):
+                with patch('src.config.MATRIX_USER', '@user:matrix.org'):
                     bot = MatrixBot(self.bridge)
                     bot.client = mock_instance
                     bot.running = True

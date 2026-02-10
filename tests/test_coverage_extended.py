@@ -8,7 +8,7 @@ from src import config
 
 class TestChannelFiltering(unittest.TestCase):
     def setUp(self):
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x
@@ -63,7 +63,7 @@ class TestChannelFiltering(unittest.TestCase):
 
 class TestReplyIdDetection(unittest.TestCase):
     def setUp(self):
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x
@@ -165,7 +165,7 @@ class TestReplyIdDetection(unittest.TestCase):
 
 class TestTextExtraction(unittest.TestCase):
     def setUp(self):
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x
@@ -199,7 +199,7 @@ class TestTextExtraction(unittest.TestCase):
 
 class TestNodeInfoHandling(unittest.TestCase):
     def setUp(self):
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x
@@ -230,7 +230,7 @@ class TestNodeInfoHandling(unittest.TestCase):
 
 class TestEmptyMessages(unittest.TestCase):
     def setUp(self):
-        self.node_db_patcher = patch('bridge.NodeDatabase')
+        self.node_db_patcher = patch('src.bridge.NodeDatabase')
         self.mock_node_db_cls = self.node_db_patcher.start()
         self.mock_node_db = self.mock_node_db_cls.return_value
         self.mock_node_db.get_node_name.side_effect = lambda x: x

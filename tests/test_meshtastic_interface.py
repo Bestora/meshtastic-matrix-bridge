@@ -22,7 +22,7 @@ class TestMeshtasticInterface(unittest.TestCase):
         self.assertEqual(interface.bridge, self.bridge)
         self.assertIsNone(interface.interface)
 
-    @patch('meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
+    @patch('src.adapters.meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
     def test_send_tapback(self, mock_tcp):
         mock_interface = MagicMock()
         
@@ -38,7 +38,7 @@ class TestMeshtasticInterface(unittest.TestCase):
             channelIndex=0
         )
 
-    @patch('meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
+    @patch('src.adapters.meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
     def test_send_text(self, mock_tcp):
         mock_interface = MagicMock()
         mock_packet = MagicMock()
@@ -56,7 +56,7 @@ class TestMeshtasticInterface(unittest.TestCase):
         )
         self.assertEqual(result.id, 99999)
 
-    @patch('meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
+    @patch('src.adapters.meshtastic_interface.meshtastic.tcp_interface.TCPInterface')
     def test_send_text_with_reply(self, mock_tcp):
         mock_interface = MagicMock()
         mock_packet = MagicMock()
