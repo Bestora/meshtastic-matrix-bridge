@@ -2,7 +2,7 @@ import asyncio
 import logging
 import base64
 import paho.mqtt.client as mqtt
-from meshtastic import mesh_pb2, portnums_pb2
+from meshtastic import mesh_pb2
 from meshtastic.protobuf import mqtt_pb2
 from google.protobuf.message import DecodeError
 from google.protobuf.json_format import MessageToDict
@@ -10,16 +10,18 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import config
 from models import ReceptionStats
+from constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP
+from utils import node_id_to_str, extract_channel_name_from_topic
 
 logger = logging.getLogger(__name__)
 
 class MqttClient:
     def __init__(self, bridge):
         self.bridge = bridge
-        self.client = mqtt.Client()
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        self.loop = None  # Will be set when start() is called
+        self.loop = None
         
         if config.MQTT_USER and config.MQTT_PASSWORD:
             self.client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
@@ -51,13 +53,9 @@ class MqttClient:
         self.client.loop_stop()
         self.client.disconnect()
 
-    def _on_connect(self, client, userdata, flags, rc):
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
             logger.info("Connected to MQTT Broker!")
-            # Convert msh/EU_868/2/e/ to msh/EU_868/2/# to get all messages (json and proto)
-            # Actually, standard is msh/REGION/CHANNEL/#
-            # If user provided a specific topic ending in /e/, let's verify.
-            # Usually topics are msh/Region/MainChannelID/v1/mqtt_id
             topic = config.MQTT_TOPIC
             if not topic.endswith("#"):
                 if topic.endswith("/"):
@@ -68,7 +66,7 @@ class MqttClient:
             logger.info(f"Subscribing to {topic}")
             client.subscribe(topic)
         else:
-            logger.error(f"Failed to connect to MQTT, return code {rc}")
+            logger.error(f"Failed to connect to MQTT, return code {reason_code}")
 
     def _on_message(self, client, userdata, msg):
         try:
@@ -87,9 +85,7 @@ class MqttClient:
                 # Might be raw Packet or JSON. Ignoring for now if not ServiceEnvelope
                 return
 
-            # Extract channel name from topic
-            # Example: msh/EU_868/2/e/LongFast/!ae614908
-            channel_name = self._extract_channel_name(msg.topic)
+            channel_name = extract_channel_name_from_topic(msg.topic)
             
             self._process_service_envelope(se, channel_name)
 
@@ -146,13 +142,12 @@ class MqttClient:
     def _handle_decoded_packet(self, packet, stats, channel_name: str):
         decoded = packet.decoded
         
-        # Handle NODEINFO packets
-        if decoded.portnum == portnums_pb2.NODEINFO_APP:
+        if decoded.portnum == NODEINFO_APP:
             self._handle_nodeinfo(packet)
             return
         
-        is_text = decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP
-        is_reaction = decoded.portnum == 68 # REACTION_APP
+        is_text = decoded.portnum == TEXT_MESSAGE_APP
+        is_reaction = decoded.portnum == REACTION_APP
         
         if is_text or is_reaction:
             # Get all fields into a dict first. Include defaults to ensure we don't miss anything.
@@ -178,10 +173,9 @@ class MqttClient:
             # depending on settings. Preserving snake_case is important.
             reply_id = decoded_dict.get("reply_id", decoded_dict.get("request_id", 0))
             
-            # Construct a final dict for the bridge
             packet_dict = {
                 "id": packet.id,
-                "fromId": self._node_id_to_str(getattr(packet, 'from')),
+                "fromId": node_id_to_str(getattr(packet, 'from')),
                 "channel": packet.channel,
                 "channel_name": channel_name,
                 "decoded": decoded_dict
@@ -203,11 +197,8 @@ class MqttClient:
                 logger.error("Event loop not set - unable to schedule message handling")
     
     def _handle_nodeinfo(self, packet):
-        """Handle NODEINFO packets to update the node database."""
         try:
-            from meshtastic import mesh_pb2
-            
-            node_id = self._node_id_to_str(getattr(packet, 'from'))
+            node_id = node_id_to_str(getattr(packet, 'from'))
             decoded = packet.decoded
             
             # Parse the User protobuf from the payload
@@ -224,10 +215,6 @@ class MqttClient:
                 )
         except Exception as e:
             logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
-
-    def _node_id_to_str(self, node_id):
-        # Convert integer node_id to !Hex string
-        return "!" + hex(node_id)[2:]
 
     def _try_decrypt(self, packet, stats, channel_name: str):
         try:
@@ -279,19 +266,3 @@ class MqttClient:
 
         except Exception as e:
             logger.error(f"Failed to decrypt packet {packet.id}: {e}")
-
-    def _node_id_to_str(self, node_id):
-        # Convert integer node_id to !Hex string
-        return "!" + hex(node_id)[2:]
-
-    def _extract_channel_name(self, topic: str) -> str:
-        """
-        Extracts channel name from topic.
-        Example: msh/EU_868/2/e/LongFast/!ae614908 -> LongFast
-        """
-        parts = topic.split('/')
-        # The channel name is usually the part after 'e', 'c', or 'json'
-        for i, part in enumerate(parts):
-            if part in ('e', 'c', 'json') and i + 1 < len(parts):
-                return parts[i + 1]
-        return "Unknown"

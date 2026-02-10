@@ -1,0 +1,11 @@
+from meshtastic import portnums_pb2
+
+TEXT_MESSAGE_APP = portnums_pb2.TEXT_MESSAGE_APP
+NODEINFO_APP = portnums_pb2.NODEINFO_APP
+REACTION_APP = 68
+
+MAX_MESSAGE_LENGTH = 200
+
+DEFAULT_GATEWAY_ID = "Unknown"
+DEFAULT_CHANNEL_NAME = "Unknown"
+DEFAULT_NODE_NAME = "LAN_Node"

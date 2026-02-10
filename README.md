@@ -61,11 +61,31 @@ See `.env.example` for all available options.
 ## Architecture
 
 The bridge uses `asyncio` to manage concurrent connections:
-- **MatrixBot**: Uses `matrix-nio` to listen for room events.
-- **MqttClient**: Uses `paho-mqtt` to subscribe to the mesh topic `msh/EU_868/...`.
-- **MeshtasticInterface**: Uses the official `meshtastic` python library to connect to the local node.
+- **MatrixBot** (`matrix_bot.py`): Uses `matrix-nio` to listen for room events.
+- **MqttClient** (`mqtt_client.py`): Uses `paho-mqtt` to subscribe to the mesh topic `msh/EU_868/...`.
+- **MeshtasticInterface** (`meshtastic_interface.py`): Uses the official `meshtastic` python library to connect to the local node.
+- **MeshtasticMatrixBridge** (`bridge.py`): Central state manager that tracks `Packet ID` <-> `Matrix Event ID` mappings to handle edits and reactions.
+- **NodeDatabase** (`node_database.py`): SQLite-backed persistence for node names and message states.
+- **Utils** (`utils.py`): Common utility functions for formatting and text processing.
+- **Constants** (`constants.py`): Centralized constants and magic numbers.
 
-A central state manager tracks `Packet ID` <-> `Matrix Event ID` mappings to handle edits and reactions.
+## Code Quality
+
+This project has been recently refactored to improve:
+- Code organization and modularity
+- Reduction of code duplication
+- Type safety with type hints
+- Better configuration validation
+- Modern API usage (MQTT v2)
+
+See `REFACTORING.md` for details on improvements made.
+
+## Testing
+
+Run tests with:
+```bash
+python test_bridge.py
+```
 
 ## Warning
-It's fully generated/vibe coded with AI, so it might be unstable or have bugs. Use with caution.
+This project was initially AI-generated, so while it has been refactored and tested, use with caution in production environments.

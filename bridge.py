@@ -2,14 +2,15 @@ import asyncio
 import logging
 import time
 import re
-from typing import Dict, List, Optional
-from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 from matrix_bot import MatrixBot
 from mqtt_client import MqttClient
 from meshtastic_interface import MeshtasticInterface
 from models import ReceptionStats, MessageState
 from node_database import NodeDatabase
+from constants import REACTION_APP, MAX_MESSAGE_LENGTH
+from utils import format_stats, is_emoji_only
 import config
 
 logger = logging.getLogger(__name__)
@@ -20,19 +21,23 @@ class MeshtasticMatrixBridge:
     def __init__(self):
         self.node_db = NodeDatabase()
         self.message_state: Dict[int, MessageState] = self.node_db.load_message_states()
-        
-        # Determine last packet ID based on last_update timestamp
-        self.last_packet_id: Optional[int] = None
-        if self.message_state:
-            # Sort states by last_update descending
-            sorted_states = sorted(self.message_state.values(), key=lambda s: s.last_update, reverse=True)
-            self.last_packet_id = sorted_states[0].packet_id
-            logger.info(f"Restored last_packet_id: {self.last_packet_id}")
-
-        self.processing_packets: Dict[int, asyncio.Event] = {} # Track packets being processed
+        self.last_packet_id: Optional[int] = self._restore_last_packet_id()
+        self.processing_packets: Dict[int, asyncio.Event] = {}
         self.matrix_bot = MatrixBot(self)
         self.mqtt_client = MqttClient(self)
         self.meshtastic_interface = MeshtasticInterface(self)
+    
+    def _restore_last_packet_id(self) -> Optional[int]:
+        if not self.message_state:
+            return None
+        sorted_states = sorted(
+            self.message_state.values(), 
+            key=lambda s: s.last_update, 
+            reverse=True
+        )
+        last_id = sorted_states[0].packet_id
+        logger.info(f"Restored last_packet_id: {last_id}")
+        return last_id
         
     async def start(self):
         logger.info("Starting Meshtastic-Matrix Bridge...")
@@ -52,10 +57,32 @@ class MeshtasticMatrixBridge:
         decoded = packet.get("decoded", {})
         portnum = decoded.get("portnum")
         
-        # Extract text/emoji safely
+        text = self._extract_text(decoded, portnum)
+        reply_id = self._find_reply_id(packet, decoded, packet_id, text, portnum)
+        
+        channel = str(packet.get("channel", 0))
+        channel_name = packet.get("channel_name", "Unknown")
+        
+        logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Port={portnum}, Text='{text}', Found ReplyID={reply_id}")
+        
+        if not self._should_process_message(packet_id, sender, text, reply_id, channel, channel_name, portnum):
+            return
+
+        if packet_id in self.processing_packets:
+            logger.info(f"Packet {packet_id} is currently processing, waiting...")
+            await self.processing_packets[packet_id].wait()
+
+        if packet_id in self.message_state:
+            await self._handle_duplicate_message(packet_id, reception_stats)
+        elif reply_id and reply_id in self.message_state:
+            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats, portnum)
+        else:
+            await self._handle_new_message(packet_id, sender, text, reception_stats)
+    
+    def _extract_text(self, decoded: dict, portnum: int) -> str:
         text = str(decoded.get("text", decoded.get("emoji", "") or ""))
         
-        if not text and portnum == 68: # REACTION_APP
+        if not text and portnum == REACTION_APP:
             payload = decoded.get("payload")
             if isinstance(payload, bytes):
                 try:
@@ -64,106 +91,98 @@ class MeshtasticMatrixBridge:
                     text = ""
             elif isinstance(payload, str):
                 text = payload
-
-        # Broad search for reply/request linkage ID
-        reply_id = 0
+        
+        return text
+    
+    def _find_reply_id(self, packet: dict, decoded: dict, packet_id: int, text: str, portnum: int) -> int:
+        reply_id = self._search_reply_fields(packet, decoded)
+        
+        if reply_id == 0:
+            reply_id = self._deep_search_reply_id(packet, decoded, packet_id)
+        
+        if reply_id == 0:
+            reply_id = self._parse_legacy_reaction(text, packet.get("fromId"))
+        
+        if reply_id == 0:
+            reply_id = self._heuristic_reply_id(text, portnum, packet_id)
+        
+        return reply_id
+    
+    def _search_reply_fields(self, packet: dict, decoded: dict) -> int:
         search_objs = [decoded, packet]
-        # Search for common fields, including both camelCase and snake_case
         search_keys = ["replyId", "reply_id", "requestId", "request_id", "replyTo", "reply_to"]
         
         for obj in search_objs:
-            if not isinstance(obj, dict): continue
+            if not isinstance(obj, dict):
+                continue
             for key in search_keys:
                 val = obj.get(key)
-                # Packet IDs are large numbers, ensure it's not 0 or None
                 if val:
                     try:
                         potential_id = int(val)
                         if potential_id != 0:
-                            reply_id = potential_id
-                            break
+                            return potential_id
                     except (ValueError, TypeError):
                         pass
-            if reply_id: break
-            
-        # DEEP LINKAGE SEARCH: If still 0, check EVERY integer field for a match in message_state
-        if reply_id == 0:
-            for obj in search_objs:
-                if not isinstance(obj, dict): continue
-                for k, v in obj.items():
-                    try:
-                        v_int = int(v)
-                        if v_int != 0 and v_int in self.message_state and v_int != packet_id:
-                            logger.info(f"Deep Linkage Search found match: field '{k}' contains known packet ID {v_int}")
-                            reply_id = v_int
-                            break
-                    except (ValueError, TypeError):
-                        continue
-                if reply_id: break
+        return 0
+    
+    def _deep_search_reply_id(self, packet: dict, decoded: dict, packet_id: int) -> int:
+        for obj in [decoded, packet]:
+            if not isinstance(obj, dict):
+                continue
+            for k, v in obj.items():
+                try:
+                    v_int = int(v)
+                    if v_int != 0 and v_int in self.message_state and v_int != packet_id:
+                        logger.info(f"Deep Linkage Search found match: field '{k}' contains known packet ID {v_int}")
+                        return v_int
+                except (ValueError, TypeError):
+                    continue
+        return 0
+    
+    def _parse_legacy_reaction(self, text: str, sender: str) -> int:
+        reaction_match = re.match(r"^\[Reaction to (\d+)\]: (.+)$", text)
+        if not reaction_match:
+            return 0
         
-        channel = str(packet.get("channel", 0))
-        channel_name = packet.get("channel_name", "Unknown")
+        target_id_str, emoji = reaction_match.groups()
+        my_node_id = getattr(self.meshtastic_interface, 'node_id', None)
         
-        logger.info(f"Processing Packet {packet_id} from {sender} on channel {channel} ({channel_name}). Port={portnum}, Text='{text}', Found ReplyID={reply_id}")
-        if reply_id == 0 and len(text) > 0 and (len(text) < 12 or portnum == 68):
-            # Only log full detail if it looks like a reaction but we failed to link it
-            logger.debug(f"Reaction linkage failed. Full Packet: {packet}")
+        if my_node_id and sender == my_node_id:
+            logger.info(f"Ignoring own reaction echo for {target_id_str}")
+            return 0
         
-        # Filter by channel (support index strings or name strings)
+        try:
+            reply_id = int(target_id_str)
+            logger.info(f"Parsed legacy text reaction from {sender} to {reply_id}: {emoji}")
+            return reply_id
+        except ValueError:
+            return 0
+    
+    def _heuristic_reply_id(self, text: str, portnum: int, packet_id: int) -> int:
+        clean_text = text.strip()
+        is_emoji_candidate = is_emoji_only(clean_text)
+        
+        if (is_emoji_candidate or portnum == REACTION_APP) and self.last_packet_id and self.last_packet_id != packet_id:
+            logger.info(f"Heuristic: Treating orphan '{clean_text}' (Port={portnum}) as reaction to last packet {self.last_packet_id}")
+            return self.last_packet_id
+        
+        return 0
+    
+    def _should_process_message(self, packet_id: int, sender: str, text: str, reply_id: int, channel: str, channel_name: str, portnum: int) -> bool:
         allowed_channels = config.MESHTASTIC_CHANNELS
         if channel not in allowed_channels and channel_name not in allowed_channels:
             logger.info(f"Ignoring packet {packet_id} from channel {channel} ({channel_name}) (Allowed: {allowed_channels})")
-            return
+            return False
 
         if not text:
-             logger.debug(f"Ignoring empty packet {packet_id} (Port={portnum})")
-             return
-
-        # Check for "[Reaction to ID]: Emoji" pattern (legacy/bridge reactions)
-        reaction_match = re.match(r"^\[Reaction to (\d+)\]: (.+)$", text)
-        if reaction_match:
-            target_id_str, emoji = reaction_match.groups()
-            
-            my_node_id = getattr(self.meshtastic_interface, 'node_id', None)
-            
-            if my_node_id and sender == my_node_id:
-                logger.info(f"Ignoring own reaction echo for {target_id_str}")
-                return
-            
-            try:
-                # If we don't already have a valid reply_id from the packet, use the parsed one
-                if not reply_id:
-                    reply_id = int(target_id_str)
-                    text = emoji
-                    logger.info(f"Parsed legacy text reaction from {sender} to {reply_id}: {emoji}")
-                else:
-                    # We have a real reply_id, just use the emoji part of the text if it was formatted this way
-                    text = emoji
-            except ValueError:
-                pass
+            logger.debug(f"Ignoring empty packet {packet_id} (Port={portnum})")
+            return False
         
-        # HEURISTIC: Only if we still have no reply_id AND it looks like a reaction
-        clean_text = text.strip()
-        is_emoji_candidate = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
+        if reply_id == 0 and len(text) > 0 and (len(text) < 12 or portnum == REACTION_APP):
+            logger.debug(f"Reaction linkage failed for packet {packet_id}")
         
-        if reply_id == 0 and (is_emoji_candidate or portnum == 68) and self.last_packet_id and self.last_packet_id != packet_id:
-            logger.info(f"Heuristic: Treating orphan '{clean_text}' (Port={portnum}) as reaction to last packet {self.last_packet_id}")
-            reply_id = self.last_packet_id
-
-        # Check race condition / pending processing
-        if packet_id in self.processing_packets:
-            logger.info(f"Packet {packet_id} is currently processing, waiting...")
-            await self.processing_packets[packet_id].wait()
-
-        # Check if we already have this packet (Duplicate detection from multiple gateways/sources)
-        if packet_id in self.message_state:
-            await self._handle_duplicate_message(packet_id, reception_stats)
-        elif reply_id and reply_id in self.message_state:
-            # New message, but it is a reply to something we know
-            await self._handle_reply_message(packet_id, sender, text, reply_id, reception_stats, portnum)
-        else:
-            # Brand new top-level message
-            await self._handle_new_message(packet_id, sender, text, reception_stats)
+        return True
 
     async def _handle_new_message(self, packet_id: int, sender: str, text: str, stats: ReceptionStats):
         # Update last_packet_id for context
@@ -174,12 +193,10 @@ class MeshtasticMatrixBridge:
         self.processing_packets[packet_id] = event
 
         try:
-            # Resolve sender name from database
             sender_name = self.node_db.get_node_name(sender)
             
-            # Format stats
-            stats_str = self._format_stats([stats])
-            stats_html = self._format_stats_html([stats])
+            stats_str = format_stats([stats], self.node_db, html=False)
+            stats_html = format_stats([stats], self.node_db, html=True)
             
             full_msg = f"[{sender_name}]: {text}\n{stats_str}"
             formatted_msg = f"<b>[{sender_name}]</b>: {text}<br>{stats_html}"
@@ -218,14 +235,9 @@ class MeshtasticMatrixBridge:
             
             sender_name = self.node_db.get_node_name(sender)
             
-            # Identify if this is a reaction (emoji) or a text reply.
-            # If portnum is REACTION_APP (68), it's definitely a reaction.
-            # Otherwise use heuristic.
             clean_text = text.strip()
-            
-            is_reaction_port = (portnum == 68)
-            is_emoji_candidate = len(clean_text) < 12 and not re.search(r'[a-zA-Z]', clean_text)
-            
+            is_reaction_port = (portnum == REACTION_APP)
+            is_emoji_candidate = is_emoji_only(clean_text)
             is_emoji_reaction = is_reaction_port or is_emoji_candidate
             
             logger.debug(f"Reply Analysis: text='{clean_text}', port={portnum}, is_emoji_reaction={is_emoji_reaction}")
@@ -258,9 +270,8 @@ class MeshtasticMatrixBridge:
                 logger.info(f"Added reaction {packet_id} to {reply_id}")
 
             else:
-                # Logic for "True Reply" (New Matrix Message)
-                stats_str = self._format_stats([stats])
-                stats_html = self._format_stats_html([stats])
+                stats_str = format_stats([stats], self.node_db, html=False)
+                stats_html = format_stats([stats], self.node_db, html=True)
                 
                 # Construct Reply Fallback (Quoting)
                 # Text fallback
@@ -320,11 +331,10 @@ class MeshtasticMatrixBridge:
             await self._update_matrix_message(state)
 
     async def _update_matrix_message(self, state: MessageState):
-        # Resolve sender name from database
         sender_name = self.node_db.get_node_name(state.sender)
         
-        stats_str = self._format_stats(state.reception_list)
-        stats_html = self._format_stats_html(state.reception_list)
+        stats_str = format_stats(state.reception_list, self.node_db, html=False)
+        stats_html = format_stats(state.reception_list, self.node_db, html=True)
         
         # Reconstruct Quote if it's a True Reply
         quote_text = ""
@@ -356,9 +366,8 @@ class MeshtasticMatrixBridge:
                     r_state = self.message_state.get(reply_item)
                     if r_state:
                         r_sender = self.node_db.get_node_name(r_state.sender)
-                        r_stats = self._format_stats(r_state.reception_list)
-                        r_stats_html = self._format_stats_html(r_state.reception_list)
-                        # "  ↳ [Sender]: Text (Stats)"
+                        r_stats = format_stats(r_state.reception_list, self.node_db, html=False)
+                        r_stats_html = format_stats(r_state.reception_list, self.node_db, html=True)
                         reply_lines.append(f"  ↳ [{r_sender}]: {r_state.original_text} {r_stats}")
                         reply_lines_html.append(f"&nbsp;&nbsp;↳ [{r_sender}]: {r_state.original_text} {r_stats_html}")
                 else:
@@ -399,34 +408,6 @@ class MeshtasticMatrixBridge:
             
             if state.matrix_event_id:
                 await self.matrix_bot.edit_message(state.matrix_event_id, new_content, new_html)
-    
-    async def _update_message_with_replies(self, state: MessageState):
-        """Update a Matrix message to include replies."""
-        await self._update_matrix_message(state)
-    
-    def _format_stats(self, stats_list: List[ReceptionStats]) -> str:
-        """Format reception statistics (Text)."""
-        sorted_stats = sorted(stats_list, key=lambda x: x.rssi, reverse=True)
-        if not sorted_stats:
-            return ""
-        return f"*({self._build_stats_str(sorted_stats)})*"
-
-    def _format_stats_html(self, stats_list: List[ReceptionStats]) -> str:
-        """Format reception statistics (HTML)."""
-        sorted_stats = sorted(stats_list, key=lambda x: x.rssi, reverse=True)
-        if not sorted_stats:
-             return ""
-        return f"<small>({self._build_stats_str(sorted_stats)})</small>"
-
-    def _build_stats_str(self, sorted_stats) -> str:
-        gateway_strings = []
-        for s in sorted_stats:
-            gateway_name = self.node_db.get_node_name(s.gateway_id)
-            if s.hop_count == 0:
-                gateway_strings.append(f"{gateway_name} ({s.rssi}dBm/{s.snr}dB)")
-            else:
-                gateway_strings.append(f"{gateway_name} ({s.hop_count} hops)")
-        return ', '.join(gateway_strings)
 
     async def handle_matrix_message(self, event):
         # Get the display name for the sender
@@ -452,17 +433,13 @@ class MeshtasticMatrixBridge:
                     break
 
         full_message = f"[{sender_name}]: {content}"
-        
-        # Handle chunking if needed
-        max_len = 200
         encoded = full_message.encode('utf-8')
         
-        if len(encoded) > max_len:
-            # Splitting case
+        if len(encoded) > MAX_MESSAGE_LENGTH:
             parts = []
             while encoded:
-                parts.append(encoded[:max_len])
-                encoded = encoded[max_len:]
+                parts.append(encoded[:MAX_MESSAGE_LENGTH])
+                encoded = encoded[MAX_MESSAGE_LENGTH:]
                 
             for i, part in enumerate(parts):
                 text_part = part.decode('utf-8', errors='ignore')

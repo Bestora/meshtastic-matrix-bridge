@@ -151,7 +151,7 @@ class TestBridge(unittest.TestCase):
             
             await self.bridge.handle_matrix_reaction(event)
             
-            self.bridge.meshtastic_interface.send_tapback.assert_called_with(999, "👍")
+            self.bridge.meshtastic_interface.send_tapback.assert_called_with(999, "👍", channel_idx=0)
 
         asyncio.run(run())
 
