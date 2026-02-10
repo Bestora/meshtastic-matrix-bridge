@@ -45,6 +45,12 @@
 - **Updated**: `.env.example` - Documented the new `NODE_DB_PATH` option
 - **Updated**: `README.md` - Documented all new features
 
+### 8. Connection Resilience and Reconnection Logic
+- **Fixed**: `BrokenPipeError` in Meshtastic heartbeat thread when TCP connection is lost.
+- **Improved**: `MeshtasticInterface` now includes an automatic reconnection loop.
+- **Improved**: Added specific error handling for "Broken pipe" during `sendText` and `sendData` operations.
+- **Improved**: Subscribed to `meshtastic.connection.lost` to proactively trigger reconnection when the device becomes unreachable.
+
 ## Example Output
 
 Before:
@@ -71,3 +77,5 @@ BestNode: [Bestora]: Test bridge3
 4. Verify database persistence by restarting the container
 5. Check Matrix display name resolution
 6. Verify Matrix reply fallback stripping
+7. Test Meshtastic LAN reconnection by temporarily disconnecting the network or the radio.
+8. Verify that "Broken pipe" errors no longer crash the bridge threads.

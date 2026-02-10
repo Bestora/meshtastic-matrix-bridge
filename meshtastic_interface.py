@@ -14,6 +14,8 @@ class MeshtasticInterface:
         self.bridge = bridge
         self.interface = None
         self._connect_task = None
+        self._disconnect_future = None
+        self.node_id = "LAN_Node"
 
     def start(self):
         self._connect_task = asyncio.create_task(self._connect_loop())
@@ -21,16 +23,25 @@ class MeshtasticInterface:
     async def _connect_loop(self):
         while True:
             try:
+                if self.interface:
+                    try:
+                        self.interface.close()
+                    except:
+                        pass
+                    self.interface = None
+
                 logger.info(f"Connecting to Meshtastic Node at {config.MESHTASTIC_HOST}:{config.MESHTASTIC_PORT}...")
-                # TCPInterface is blocking, so we run it in a thread
+                
+                # TCPInterface starts its own threads for reading and heartbeats
                 self.interface = await asyncio.to_thread(
                     meshtastic.tcp_interface.TCPInterface,
                     hostname=config.MESHTASTIC_HOST,
                     portNumber=config.MESHTASTIC_PORT
                 )
                 
-                # Subscribe to message events
+                # Subscribe to events
                 pub.subscribe(self._on_meshtastic_message, "meshtastic.receive")
+                pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
                 
                 # Get Local Node ID
                 try:
@@ -41,47 +52,90 @@ class MeshtasticInterface:
                     logger.warning(f"Could not get local node ID: {e}")
                     self.node_id = "LAN_Node"
 
-                logger.info("Connected to Meshtastic Node!")
-                return
+                # Create a future to wait for disconnect
+                self._disconnect_future = asyncio.get_running_loop().create_future()
+                
+                # Wait for either the disconnect future or the task being cancelled
+                await self._disconnect_future
+                logger.warning("Meshtastic connection lost detected.")
+
             except Exception as e:
-                logger.error(f"Failed to connect to Meshtastic LAN node: {e}. Retrying in 5 seconds...")
-                await asyncio.sleep(5)
+                logger.error(f"Meshtastic LAN connection error: {e}")
+            
+            # Clean up and wait before retrying
+            logger.info("Retrying Meshtastic connection in 5 seconds...")
+            self._cleanup_interface()
+            await asyncio.sleep(5)
+
+    def _cleanup_interface(self):
+        """Safely close and clean up the current interface."""
+        pub.unsubscribe(self._on_meshtastic_message, "meshtastic.receive")
+        pub.unsubscribe(self._on_connection_lost, "meshtastic.connection.lost")
+        
+        if self.interface:
+            try:
+                self.interface.close()
+            except Exception as e:
+                logger.debug(f"Error closing interface: {e}")
+            self.interface = None
+        
+        if self._disconnect_future and not self._disconnect_future.done():
+            self._disconnect_future.set_result(None)
+
+    def _on_connection_lost(self, interface):
+        """Callback from meshtastic library when connection is lost."""
+        if interface == self.interface:
+            logger.warning("Meshtastic library reported connection lost")
+            if self._disconnect_future and not self._disconnect_future.done():
+                self._disconnect_future.get_loop().call_soon_threadsafe(
+                    lambda: not self._disconnect_future.done() and self._disconnect_future.set_result(True)
+                )
 
     def stop(self):
         if self._connect_task:
             self._connect_task.cancel()
-        if self.interface:
-            self.interface.close()
+        self._cleanup_interface()
 
     def send_tapback(self, target_packet_id: int, emoji: str, channel_idx: int = 0):
         """
         Sends a tapback (reaction) to the mesh.
         Uses REACTION_APP (68) so clients render it properly.
         """
-        if self.interface:
-            try:
-                # Attempt to use sendData with replyId (recent meshtastic versions)
-                # portnums_pb2.REACTION_APP is usually 68
-                self.interface.sendData(
-                    data=emoji.encode("utf-8"),
-                    portNum=68,
-                    replyId=target_packet_id,
-                    channelIndex=channel_idx
-                )
-                logger.info(f"Sent tapback '{emoji}' to {target_packet_id}")
-            except Exception as e:
-                logger.error(f"Failed to send tapback: {e}")
-        else:
+        if not self.interface:
             logger.error("Cannot send tapback: Interface not connected")
+            return
+
+        try:
+            self.interface.sendData(
+                data=emoji.encode("utf-8"),
+                portNum=68,
+                replyId=target_packet_id,
+                channelIndex=channel_idx
+            )
+            logger.info(f"Sent tapback '{emoji}' to {target_packet_id}")
+        except Exception as e:
+            logger.error(f"Failed to send tapback: {e}")
+            # If we hit a broken pipe or similar, trigger a reconnect
+            if isinstance(e, BrokenPipeError) or "Broken pipe" in str(e):
+                self._on_connection_lost(self.interface)
 
     def send_text(self, text: str, channel_idx: int = 0, reply_id: Optional[int] = None):
-        if self.interface:
-            return self.interface.sendText(text, channelIndex=channel_idx, replyId=reply_id)
-        else:
+        if not self.interface:
             logger.error("Cannot send text: Interface not connected")
+            return None
+            
+        try:
+            return self.interface.sendText(text, channelIndex=channel_idx, replyId=reply_id)
+        except Exception as e:
+            logger.error(f"Failed to send text: {e}")
+            if isinstance(e, BrokenPipeError) or "Broken pipe" in str(e):
+                self._on_connection_lost(self.interface)
             return None
 
     def _on_meshtastic_message(self, packet, interface):
+        if interface != self.interface:
+            return
+
         try:
             # packet is a dict
             logger.debug(f"LAN Message received: {packet}")
@@ -100,12 +154,11 @@ class MeshtasticInterface:
             
             # Check for supported apps
             # TEXT_MESSAGE_APP = 1
-            # REACTION_APP = 68 (Commonly used, though maybe not in all pb2 yet)
+            # REACTION_APP = 68
             is_text_like = portnum == portnums_pb2.TEXT_MESSAGE_APP or portnum == 68
             
             if is_text_like:
                 # Create Mock Stats for LAN
-                # For LAN, RSSI/SNR might be in 'rxRSSI'/'rxSNR'
                 rssi = packet.get("rxRssi", 0)
                 snr = packet.get("rxSnr", 0.0)
                 
@@ -115,7 +168,7 @@ class MeshtasticInterface:
                     hop_count = packet["hopStart"] - packet["hopLimit"]
                 
                 stats = ReceptionStats(
-                    gateway_id=self.node_id if hasattr(self, 'node_id') else "LAN_Node",
+                    gateway_id=self.node_id,
                     rssi=rssi,
                     snr=snr,
                     hop_count=hop_count
@@ -157,3 +210,4 @@ class MeshtasticInterface:
                 )
         except Exception as e:
             logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
+
