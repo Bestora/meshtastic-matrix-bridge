@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class MeshtasticMatrixBridge:
     def __init__(self):
+        self.loop = asyncio.get_event_loop()
         self.node_db = NodeDatabase()
         self.message_state: Dict[int, MessageState] = self.node_db.load_message_states()
         self.last_packet_id: Optional[int] = self._restore_last_packet_id()
@@ -26,6 +27,12 @@ class MeshtasticMatrixBridge:
         self.matrix_bot = MatrixBot(self)
         self.mqtt_client = MqttClient(self)
         self.meshtastic_interface = MeshtasticInterface(self)
+        self._cleanup_task = None
+        
+        # Configuration for memory management
+        self.MESSAGE_STATE_MAX_AGE = 86400  # 24 hours in seconds
+        self.MESSAGE_STATE_MAX_SIZE = 10000  # Maximum number of message states to keep
+        self.CLEANUP_INTERVAL = 3600  # Run cleanup every hour
     
     def _restore_last_packet_id(self) -> Optional[int]:
         if not self.message_state:
@@ -45,8 +52,21 @@ class MeshtasticMatrixBridge:
         self.mqtt_client.start()
         self.meshtastic_interface.start()
         
+        # Start periodic cleanup task
+        self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
+        logger.info("Started periodic cleanup task")
+        
     async def stop(self):
         logger.info("Stopping Bridge...")
+        
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
         self.mqtt_client.stop()
         self.meshtastic_interface.stop()
         await self.matrix_bot.stop()
@@ -496,3 +516,48 @@ class MeshtasticMatrixBridge:
         if target_packet_id:
             logger.info(f"Forwarding reaction {key} to mesh for packet {target_packet_id}")
             self.meshtastic_interface.send_tapback(target_packet_id, key, channel_idx=config.MESHTASTIC_CHANNEL_IDX)
+
+    async def _periodic_cleanup(self):
+        """Periodically clean up old message states to prevent memory leaks."""
+        while True:
+            try:
+                await asyncio.sleep(self.CLEANUP_INTERVAL)
+                await self._cleanup_old_messages()
+            except asyncio.CancelledError:
+                logger.info("Cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in cleanup task: {e}", exc_info=True)
+    
+    async def _cleanup_old_messages(self):
+        """Remove old message states that are no longer needed."""
+        try:
+            current_time = time.time()
+            initial_count = len(self.message_state)
+            
+            # Remove messages older than MESSAGE_STATE_MAX_AGE
+            to_remove = []
+            for packet_id, state in self.message_state.items():
+                age = current_time - state.last_update
+                if age > self.MESSAGE_STATE_MAX_AGE:
+                    to_remove.append(packet_id)
+            
+            for packet_id in to_remove:
+                del self.message_state[packet_id]
+            
+            # If still too many messages, remove oldest ones
+            if len(self.message_state) > self.MESSAGE_STATE_MAX_SIZE:
+                # Sort by last_update and keep only the newest MESSAGE_STATE_MAX_SIZE
+                sorted_states = sorted(
+                    self.message_state.items(),
+                    key=lambda x: x[1].last_update,
+                    reverse=True
+                )
+                self.message_state = dict(sorted_states[:self.MESSAGE_STATE_MAX_SIZE])
+            
+            removed_count = initial_count - len(self.message_state)
+            if removed_count > 0:
+                logger.info(f"Cleanup: Removed {removed_count} old message states. {len(self.message_state)} remaining.")
+                
+        except Exception as e:
+            logger.error(f"Error during message cleanup: {e}", exc_info=True)

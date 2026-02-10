@@ -40,6 +40,10 @@ class MeshtasticInterface:
                     self.node_id = DEFAULT_NODE_NAME
 
                 logger.info("Connected to Meshtastic Node!")
+                
+                # Import existing node database from the local node
+                await self._import_node_database()
+                
                 return
             except Exception as e:
                 logger.error(f"Failed to connect to Meshtastic LAN node: {e}. Retrying in 5 seconds...")
@@ -117,7 +121,7 @@ class MeshtasticInterface:
 
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_meshtastic_message(packet, "lan", stats),
-                    asyncio.get_event_loop()
+                    self.bridge.loop
                 )
                 
         except Exception as e:
@@ -136,7 +140,39 @@ class MeshtasticInterface:
             if from_id:
                 asyncio.run_coroutine_threadsafe(
                     self.bridge.handle_node_info(from_id, short_name, long_name),
-                    asyncio.get_event_loop()
+                    self.bridge.loop
                 )
         except Exception as e:
             logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
+    
+    async def _import_node_database(self):
+        """Import all nodes from the Meshtastic node's database into our database."""
+        try:
+            if not self.interface or not hasattr(self.interface, 'nodes'):
+                logger.warning("Interface has no nodes attribute, skipping node DB import")
+                return
+            
+            node_count = 0
+            for node_id_int, node_info in self.interface.nodes.items():
+                try:
+                    # Convert node ID to hex string format
+                    node_id_str = "!" + hex(node_id_int)[2:]
+                    
+                    # Extract user information
+                    user = node_info.get('user', {})
+                    short_name = user.get('shortName')
+                    long_name = user.get('longName')
+                    
+                    # Only update if we have at least one name
+                    if short_name or long_name:
+                        await self.bridge.handle_node_info(node_id_str, short_name, long_name)
+                        node_count += 1
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to import node {node_id_int}: {e}")
+                    continue
+            
+            logger.info(f"Successfully imported {node_count} nodes from local Meshtastic database")
+            
+        except Exception as e:
+            logger.error(f"Error importing node database: {e}", exc_info=True)
