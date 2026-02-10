@@ -19,7 +19,16 @@ logger = logging.getLogger(__name__)
 
 class MeshtasticMatrixBridge:
     def __init__(self):
-        self.loop = asyncio.get_event_loop()
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running, try to get or create one
+            try:
+                self.loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self.loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.loop)
+        
         self.node_db = NodeDatabase()
         self.message_state: Dict[int, MessageState] = self.node_db.load_message_states()
         self.last_packet_id: Optional[int] = self._restore_last_packet_id()
