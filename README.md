@@ -84,19 +84,25 @@ See `REFACTORING.md` for details on improvements made.
 
 Run tests with:
 ```bash
-# Core tests (6 tests)
-python test_bridge.py
+# Run all tests with comprehensive report
+python run_all_tests.py
 
-# Extended tests (22 tests)
-python test_coverage_extended.py
-
-# Run all tests
-python test_bridge.py && python test_coverage_extended.py
+# Or run individual test suites
+python test_bridge.py                  # Core tests (6/6 passing)
+python test_coverage_extended.py       # Extended tests (22/22 passing)  
+python test_database.py                # Database tests (7/13 passing)
+python test_matrix_bot.py              # Matrix bot tests (9/12 passing)
+python test_meshtastic_interface.py    # Meshtastic tests (9/11 passing)
+python test_mqtt_client.py             # MQTT tests (7/8 passing)
+python test_bridge_advanced.py         # Advanced tests (14/33 passing)
 ```
 
-**Test Coverage**: ~25% overall (28 tests total)
-- See `TEST_SUMMARY.md` for detailed coverage analysis
-- See `TEST_COVERAGE_ANALYSIS.md` for feature-by-feature breakdown
+**Test Coverage**: ~55% estimated line coverage
+- **105 tests total**: 74 passing (70.5%), 6 failing, 25 errors
+- **7 test files**: 2 fully passing, 5 partially passing
+- See `TEST_COVERAGE_FINAL.md` for complete test report
+- See `TEST_SUMMARY.md` for feature analysis
+- See `TEST_COVERAGE_ANALYSIS.md` for detailed breakdown
 
 ## Warning
 This project was initially AI-generated, so while it has been refactored and tested, use with caution in production environments.
