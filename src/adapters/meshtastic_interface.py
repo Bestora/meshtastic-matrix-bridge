@@ -2,9 +2,9 @@ import asyncio
 from typing import Optional
 import logging
 import meshtastic.tcp_interface
-import config
-from models import ReceptionStats
-from constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP, DEFAULT_NODE_NAME
+from src import config
+from src.models import ReceptionStats
+from src.constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP, DEFAULT_NODE_NAME
 from pubsub import pub
 
 logger = logging.getLogger(__name__)

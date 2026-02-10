@@ -1,5 +1,5 @@
 from typing import List
-from models import ReceptionStats
+from src.models import ReceptionStats
 
 
 def node_id_to_str(node_id: int) -> str:

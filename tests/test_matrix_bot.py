@@ -1,7 +1,7 @@
 import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
-from matrix_bot import MatrixBot
+from src.adapters.matrix_bot import MatrixBot
 from nio import MatrixRoom, RoomMessageText, ReactionEvent, LoginResponse, JoinedRoomsResponse, RoomResolveAliasResponse
 
 

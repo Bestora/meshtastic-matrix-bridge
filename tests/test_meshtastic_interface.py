@@ -1,9 +1,9 @@
 import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
-from meshtastic_interface import MeshtasticInterface
-from models import ReceptionStats
-from constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP
+from src.adapters.meshtastic_interface import MeshtasticInterface
+from src.models import ReceptionStats
+from src.constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP
 
 
 class TestMeshtasticInterface(unittest.TestCase):

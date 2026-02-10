@@ -8,10 +8,10 @@ from google.protobuf.message import DecodeError
 from google.protobuf.json_format import MessageToDict
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-import config
-from models import ReceptionStats
-from constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP
-from utils import node_id_to_str, extract_channel_name_from_topic
+from src import config
+from src.models import ReceptionStats
+from src.constants import NODEINFO_APP, TEXT_MESSAGE_APP, REACTION_APP
+from src.utils import node_id_to_str, extract_channel_name_from_topic
 
 logger = logging.getLogger(__name__)
 

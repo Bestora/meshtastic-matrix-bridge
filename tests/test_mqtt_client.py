@@ -1,9 +1,9 @@
 import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch, call
-from mqtt_client import MqttClient
-from models import ReceptionStats
-import config
+from src.adapters.mqtt_client import MqttClient
+from src.models import ReceptionStats
+from src import config
 
 
 class TestMQTTClient(unittest.TestCase):

@@ -4,8 +4,8 @@ import json
 from dataclasses import asdict
 from typing import Optional, Dict
 from contextlib import contextmanager
-import config
-from models import MessageState, ReceptionStats
+from src import config
+from src.models import MessageState, ReceptionStats
 
 logger = logging.getLogger(__name__)
 

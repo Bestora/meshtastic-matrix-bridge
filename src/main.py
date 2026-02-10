@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import signal
-from bridge import MeshtasticMatrixBridge
-import config
+from src.bridge import MeshtasticMatrixBridge
+from src import config
 
 logging.basicConfig(
     level=logging.INFO,

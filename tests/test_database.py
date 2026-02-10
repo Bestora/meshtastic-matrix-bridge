@@ -1,8 +1,8 @@
 import unittest
 import tempfile
 import os
-from node_database import NodeDatabase
-from models import MessageState
+from src.database.node_database import NodeDatabase
+from src.models import MessageState
 
 
 class TestNodeDatabase(unittest.TestCase):

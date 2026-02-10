@@ -1,9 +1,9 @@
 import asyncio
 import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
-from bridge import MeshtasticMatrixBridge
-from models import ReceptionStats, MessageState
-import config
+from src.bridge import MeshtasticMatrixBridge
+from src.models import ReceptionStats, MessageState
+from src import config
 
 
 class TestBridgeAdvanced(unittest.TestCase):

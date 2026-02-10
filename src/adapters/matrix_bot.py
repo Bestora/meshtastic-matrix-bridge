@@ -2,10 +2,10 @@ import asyncio
 import logging
 from typing import Optional, TYPE_CHECKING
 from nio import AsyncClient, MatrixRoom, RoomMessageText, ReactionEvent
-import config
+from src import config
 
 if TYPE_CHECKING:
-    from bridge import MeshtasticMatrixBridge
+    from src.bridge import MeshtasticMatrixBridge
 
 logger = logging.getLogger(__name__)
 

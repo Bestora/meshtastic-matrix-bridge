@@ -51,23 +51,48 @@ A Python bridge to connect a Meshtastic mesh (via MQTT and/or Local node) to a M
     ```
 4.  Run the bridge:
     ```bash
-    python main.py
+    python run.py
     ```
 
 ## Configuration
 
 See `.env.example` for all available options.
 
+## Project Structure
+
+```
+meshtastic-matrix-bridge/
+├── src/                           # Main application code
+│   ├── main.py                    # Application entry point
+│   ├── bridge.py                  # Core bridge orchestration
+│   ├── config.py                  # Configuration management
+│   ├── constants.py               # Application constants
+│   ├── models.py                  # Data models
+│   ├── utils.py                   # Utility functions
+│   ├── adapters/                  # External service adapters
+│   │   ├── matrix_bot.py         # Matrix client
+│   │   ├── mqtt_client.py        # MQTT client
+│   │   └── meshtastic_interface.py # Meshtastic node interface
+│   └── database/                  # Database layer
+│       └── node_database.py      # SQLite persistence
+├── tests/                         # Test suite
+├── docs/                          # Documentation
+├── run.py                         # Main entry point
+├── requirements.txt               # Python dependencies
+├── Dockerfile                     # Docker configuration
+└── compose.yaml                   # Docker Compose config
+```
+
 ## Architecture
 
 The bridge uses `asyncio` to manage concurrent connections:
-- **MatrixBot** (`matrix_bot.py`): Uses `matrix-nio` to listen for room events.
-- **MqttClient** (`mqtt_client.py`): Uses `paho-mqtt` to subscribe to the mesh topic `msh/EU_868/...`.
-- **MeshtasticInterface** (`meshtastic_interface.py`): Uses the official `meshtastic` python library to connect to the local node.
-- **MeshtasticMatrixBridge** (`bridge.py`): Central state manager that tracks `Packet ID` <-> `Matrix Event ID` mappings to handle edits and reactions.
-- **NodeDatabase** (`node_database.py`): SQLite-backed persistence for node names and message states.
-- **Utils** (`utils.py`): Common utility functions for formatting and text processing.
-- **Constants** (`constants.py`): Centralized constants and magic numbers.
+- **MatrixBot** (`src/adapters/matrix_bot.py`): Uses `matrix-nio` to listen for room events.
+- **MqttClient** (`src/adapters/mqtt_client.py`): Uses `paho-mqtt` to subscribe to the mesh topic.
+- **MeshtasticInterface** (`src/adapters/meshtastic_interface.py`): Connects to the local Meshtastic node.
+- **MeshtasticMatrixBridge** (`src/bridge.py`): Central state manager that tracks `Packet ID` ↔ `Matrix Event ID` mappings.
+- **NodeDatabase** (`src/database/node_database.py`): SQLite-backed persistence for node names and message states.
+- **Utils** (`src/utils.py`): Common utility functions for formatting and text processing.
+- **Constants** (`src/constants.py`): Centralized constants and magic numbers.
 
 ## Code Quality
 
@@ -78,31 +103,31 @@ This project has been recently refactored to improve:
 - Better configuration validation
 - Modern API usage (MQTT v2)
 
-See `REFACTORING.md` for details on improvements made.
+See `docs/REFACTORING.md` for details on improvements made.
 
 ## Testing
 
 Run tests with:
 ```bash
 # Run all tests with comprehensive report
-python run_all_tests.py
+python tests/run_all_tests.py
 
-# Or run individual test suites
-python test_bridge.py                  # Core tests (6/6 passing)
-python test_coverage_extended.py       # Extended tests (22/22 passing)  
-python test_database.py                # Database tests (7/13 passing)
-python test_matrix_bot.py              # Matrix bot tests (9/12 passing)
-python test_meshtastic_interface.py    # Meshtastic tests (9/11 passing)
-python test_mqtt_client.py             # MQTT tests (7/8 passing)
-python test_bridge_advanced.py         # Advanced tests (14/33 passing)
+# Or run individual test suites from project root
+python -m pytest tests/test_bridge.py                  # Core tests (6/6 passing)
+python -m pytest tests/test_coverage_extended.py       # Extended tests (22/22 passing)  
+python -m pytest tests/test_database.py                # Database tests (7/13 passing)
+python -m pytest tests/test_matrix_bot.py              # Matrix bot tests (9/12 passing)
+python -m pytest tests/test_meshtastic_interface.py    # Meshtastic tests (9/11 passing)
+python -m pytest tests/test_mqtt_client.py             # MQTT tests (7/8 passing)
+python -m pytest tests/test_bridge_advanced.py         # Advanced tests (14/33 passing)
 ```
 
 **Test Coverage**: ~55% estimated line coverage
 - **105 tests total**: 74 passing (70.5%), 6 failing, 25 errors
 - **7 test files**: 2 fully passing, 5 partially passing
-- See `TEST_COVERAGE_FINAL.md` for complete test report
-- See `TEST_SUMMARY.md` for feature analysis
-- See `TEST_COVERAGE_ANALYSIS.md` for detailed breakdown
+- See `docs/TEST_COVERAGE_FINAL.md` for complete test report
+- See `docs/TEST_SUMMARY.md` for feature analysis
+- See `docs/TEST_COVERAGE_ANALYSIS.md` for detailed breakdown
 
 ## Warning
 This project was initially AI-generated, so while it has been refactored and tested, use with caution in production environments.
