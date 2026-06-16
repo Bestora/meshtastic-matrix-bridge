@@ -90,13 +90,13 @@ class MqttClient:
             # Extract channel name from topic
             # Example: msh/EU_868/2/e/LongFast/!ae614908
             channel_name = self._extract_channel_name(msg.topic)
-            
-            self._process_service_envelope(se, channel_name)
+
+            self._process_service_envelope(se, channel_name, msg.topic)
 
         except Exception as e:
             logger.error(f"Error processing MQTT message: {e}", exc_info=True)
 
-    def _process_service_envelope(self, se, channel_name: str):
+    def _process_service_envelope(self, se, channel_name: str, topic: str = ""):
         packet = se.packet
         if not packet.id:
             return
@@ -133,15 +133,32 @@ class MqttClient:
         # Create ReceptionStats
         stats = ReceptionStats(gateway_id=gateway_id, rssi=rssi, snr=snr, hop_count=hop_count)
 
+        # Channel guard: we subscribe broadly (all gateways) but only ever
+        # decrypt our own channel(s). Foreign channels use different keys and
+        # would just produce decrypt spam.
+        allowed = config.MESHTASTIC_CHANNELS
+        is_our_channel = channel_name in allowed or str(packet.channel) in allowed
+
+        if is_our_channel:
+            logger.info(
+                f"MQTT RX: packet={packet.id} gateway={gateway_id} "
+                f"channel={channel_name} hops={hop_count} rssi={rssi} topic={topic}"
+            )
+        else:
+            logger.debug(f"MQTT RX (foreign channel '{channel_name}'): packet={packet.id} topic={topic}")
+
         # Payload Decoding
         # Check if packet is already decoded or needs decryption
-        
         if packet.HasField("decoded"):
-            # Already decoded
+            # Decoded packets (incl. NODEINFO from any channel) handled directly;
+            # the bridge applies the channel filter for text/reactions.
             self._handle_decoded_packet(packet, stats, channel_name)
         elif packet.HasField("encrypted") and config.MESHTASTIC_CHANNEL_PSK:
-            # Manual Decryption
-            self._try_decrypt(packet, stats, channel_name)
+            # Only decrypt our own channel(s); foreign channels use different keys.
+            if is_our_channel or channel_name == "Unknown":
+                self._try_decrypt(packet, stats, channel_name)
+            else:
+                logger.debug(f"Skipping decrypt for foreign channel '{channel_name}' (packet {packet.id})")
 
     def _handle_decoded_packet(self, packet, stats, channel_name: str):
         decoded = packet.decoded
@@ -226,8 +243,10 @@ class MqttClient:
             logger.error(f"Error processing NODEINFO: {e}", exc_info=True)
 
     def _node_id_to_str(self, node_id):
-        # Convert integer node_id to !Hex string
-        return "!" + hex(node_id)[2:]
+        # "!" + 8 zero-padded hex digits, matching the firmware/gateway_id
+        # convention so NODEINFO and gateway lookups use the same key
+        # (otherwise names never resolve for ids with a leading 0 nibble).
+        return "!" + format(node_id & 0xFFFFFFFF, "08x")
 
     def _try_decrypt(self, packet, stats, channel_name: str):
         try:
@@ -242,27 +261,12 @@ class MqttClient:
                 logger.error("Invalid base64 key in MESHTASTIC_CHANNEL_PSK")
                 return
             
-            # Nonce Construction (Meshtastic 1.2+ usually)
-            # Packet ID (4 bytes) + From Node (4 bytes) + 8 bytes padding ??
-            # Official docs say: 12 bytes nonce (PacketID + SenderNodeID + extra?)
-            # Actually, let's verify standard: PacketID (LE 4B) + FromNodeID (LE 4B) + 8 bytes Counter=0
-            # Wait, AES-CTR requires a 16-byte block as IV.
-            # Common Meshtastic usage:
-            # Nonce = packetId (4 bytes) + fromNodeId (4 bytes) + 8 bytes zero
-            
-            packet_id_bytes = packet.id.to_bytes(4, byteorder='little')
-            from_id_bytes = getattr(packet, 'from').to_bytes(4, byteorder='little')
-            
-            # Construct 16-byte IV for CTR mode (Nonce + Counter)
-            # Meshtastic use:
-            # bytes 0-3: Packet ID
-            # bytes 4-7: From Node ID
-            # bytes 8-15: 0 (This serves as the extra nonce space or initial counter block?)
-            # Actually CTR mode in cryptography splits this. 
-            # We pass full 16 bytes as 'nonce' argument to modes.CTR()
-            
-            nonce_iv = packet_id_bytes + from_id_bytes + (b'\x00' * 8)
-            
+            # Meshtastic AES-CTR nonce / initial counter block (16 bytes), matching
+            # the firmware's CryptoEngine::initNonce:
+            #   bytes 0-7  : packet id    (64-bit little-endian; high 4 bytes are 0)
+            #   bytes 8-15 : from node id (little-endian; high 4 bytes are 0 for 32-bit ids)
+            nonce_iv = packet.id.to_bytes(8, "little") + getattr(packet, "from").to_bytes(8, "little")
+
             cipher = Cipher(algorithms.AES(key), modes.CTR(nonce_iv), backend=default_backend())
             decryptor = cipher.decryptor()
             decrypted_data = decryptor.update(packet.encrypted) + decryptor.finalize()
@@ -279,10 +283,6 @@ class MqttClient:
 
         except Exception as e:
             logger.error(f"Failed to decrypt packet {packet.id}: {e}")
-
-    def _node_id_to_str(self, node_id):
-        # Convert integer node_id to !Hex string
-        return "!" + hex(node_id)[2:]
 
     def _extract_channel_name(self, topic: str) -> str:
         """
